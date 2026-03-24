@@ -6,13 +6,11 @@ directories:
 files:
   - out/**/*
   - "!node_modules/**/*"
+generateBlockmap: false
 mac:
   category: public.app-category.developer-tools
   target:
     - target: dmg
-      arch:
-        - universal
-    - target: zip
       arch:
         - universal
   darkModeSupport: true
