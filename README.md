@@ -30,6 +30,19 @@ Download from [GitHub Releases](https://github.com/AadityaMishra1/Gilfoyle/relea
 | Windows | `.exe` installer |
 | Linux | `.AppImage` or `.deb` |
 
+### macOS: first launch
+
+macOS will show "cannot verify the developer" on first open. To bypass this:
+
+1. **Right-click** (or Control-click) the app in Finder
+2. Click **Open**
+3. Click **Open** again in the dialog
+
+You only need to do this once. Alternatively, run:
+```bash
+xattr -cr /Applications/Gilfoyle.app
+```
+
 ### Prerequisites
 
 - [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) — `npm i -g @anthropic-ai/claude-code`
