@@ -3,7 +3,10 @@
   "version": "0.1.0",
   "description": "Gilfoyle — a desktop GUI for Claude Code CLI",
   "main": "out/main/index.js",
-  "author": "Aaditya Mishra",
+  "author": {
+    "name": "Aaditya Mishra",
+    "email": "aadityamishra1@users.noreply.github.com"
+  },
   "license": "MIT",
   "scripts": {
     "dev": "electron-vite dev",
