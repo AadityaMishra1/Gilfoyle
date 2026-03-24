@@ -1,0 +1,38 @@
+appId: com.gilfoyle.app
+productName: Gilfoyle
+directories:
+  output: release
+  buildResources: build
+files:
+  - out/**/*
+  - "!node_modules/**/*"
+mac:
+  category: public.app-category.developer-tools
+  target:
+    - target: dmg
+      arch:
+        - universal
+    - target: zip
+      arch:
+        - universal
+  darkModeSupport: true
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+linux:
+  target:
+    - target: AppImage
+      arch:
+        - x64
+    - target: deb
+      arch:
+        - x64
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+publish:
+  provider: github
+  owner: AadityaMishra1
+  repo: Gilfoyle

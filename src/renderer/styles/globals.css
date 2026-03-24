@@ -1,0 +1,304 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── Dark theme (default) ────────────────────────────────────────── */
+:root,
+[data-theme="dark"] {
+  --bg-primary: #1c1917;
+  --bg-secondary: #171412;
+  --bg-surface: #292524;
+  --bg-hover: #3a3533;
+  --bg-sidebar: #1e1b18;
+  --bg-terminal: #171412;
+  --bg-elevated: #141210;
+  --text-primary: #fafaf9;
+  --text-secondary: #a8a29e;
+  --text-muted: #78716c;
+  --text-dim: #57534e;
+  --accent-primary: #e8a872;
+  --accent-secondary: #f0c59c;
+  --accent-muted: #7c4a1e;
+  --accent-glow: rgba(232, 168, 114, 0.06);
+  --border: #3a3533;
+  --border-subtle: rgba(120, 113, 108, 0.2);
+  --success: #4ade80;
+  --warning: #e8a872;
+  --error: #f87171;
+  --scrollbar-thumb: #3a3533;
+  --scrollbar-thumb-hover: #4e4845;
+  --selection-bg: rgba(232, 168, 114, 0.25);
+  --backdrop: rgba(23, 20, 18, 0.7);
+  --shadow-title: 0 1px 0 rgba(255, 255, 255, 0.04), 0 1px 8px rgba(0, 0, 0, 0.4);
+  --shadow-dialog: 0 32px 64px rgba(0, 0, 0, 0.6);
+  --gradient-line: linear-gradient(90deg, transparent 0%, rgba(58,53,51,0.9) 20%, rgba(58,53,51,0.9) 80%, transparent 100%);
+}
+
+/* ─── Light theme ─────────────────────────────────────────────────── */
+[data-theme="light"] {
+  --bg-primary: #f5f5f4;
+  --bg-secondary: #fafaf9;
+  --bg-surface: #e7e5e4;
+  --bg-hover: #d6d3d1;
+  --bg-sidebar: #f0eeec;
+  --bg-terminal: #fafaf9;
+  --bg-elevated: #ffffff;
+  --text-primary: #1c1917;
+  --text-secondary: #57534e;
+  --text-muted: #78716c;
+  --text-dim: #a8a29e;
+  --accent-primary: #c2782a;
+  --accent-secondary: #a0621e;
+  --accent-muted: #f0c59c;
+  --accent-glow: rgba(194, 120, 42, 0.08);
+  --border: #d6d3d1;
+  --border-subtle: rgba(120, 113, 108, 0.15);
+  --success: #16a34a;
+  --warning: #c2782a;
+  --error: #dc2626;
+  --scrollbar-thumb: #d6d3d1;
+  --scrollbar-thumb-hover: #a8a29e;
+  --selection-bg: rgba(194, 120, 42, 0.2);
+  --backdrop: rgba(250, 250, 249, 0.7);
+  --shadow-title: 0 1px 0 rgba(0, 0, 0, 0.04), 0 1px 8px rgba(0, 0, 0, 0.08);
+  --shadow-dialog: 0 32px 64px rgba(0, 0, 0, 0.15);
+  --gradient-line: linear-gradient(90deg, transparent 0%, rgba(214,211,209,0.9) 20%, rgba(214,211,209,0.9) 80%, transparent 100%);
+}
+
+/* ─── Base resets ───────────────────────────────────────────────── */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* ─── Scrollbar styling ─────────────────────────────────────────── */
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--scrollbar-thumb-hover);
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Firefox scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+/* ─── Drag region utility ───────────────────────────────────────── */
+
+.drag-region {
+  -webkit-app-region: drag;
+}
+
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* ─── xterm.js container overrides ─────────────────────────────── */
+
+.xterm {
+  height: 100%;
+  padding: 0;
+}
+
+.xterm-viewport {
+  overflow-y: auto !important;
+}
+
+.xterm-viewport::-webkit-scrollbar {
+  width: 6px;
+}
+
+.xterm-viewport::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.xterm-viewport::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb);
+  border-radius: 3px;
+}
+
+.xterm-screen {
+  /* Ensure the canvas fills the full width */
+  width: 100% !important;
+}
+
+/* ─── Focus ring override for Electron ─────────────────────────── */
+
+:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+/* ─── Selection color ───────────────────────────────────────────── */
+
+::selection {
+  background-color: var(--selection-bg);
+  color: var(--text-primary);
+}
+
+/* ─── React Mosaic dark warm theme ─────────────────────────────── */
+
+.mosaic-theme-dark {
+  background: var(--bg-secondary) !important;
+}
+
+.mosaic-theme-dark .mosaic-tile {
+  margin: 2px;
+}
+
+.mosaic-theme-dark .mosaic-window,
+.mosaic-theme-dark .mosaic-preview {
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.mosaic-theme-dark .mosaic-window-toolbar {
+  display: none !important;
+}
+
+.mosaic-theme-dark .mosaic-window-body {
+  background: var(--bg-primary);
+  border-radius: 6px;
+}
+
+.mosaic-theme-dark .mosaic-split {
+  background: transparent;
+}
+
+.mosaic-theme-dark .mosaic-split:hover {
+  background: var(--accent-primary);
+}
+
+.mosaic-theme-dark .mosaic-split.-row {
+  width: 4px;
+  margin: 0 -2px;
+}
+
+.mosaic-theme-dark .mosaic-split.-column {
+  height: 4px;
+  margin: -2px 0;
+}
+
+.mosaic-theme-dark .mosaic-window-body-overlay {
+  display: none;
+}
+
+/* Hide default mosaic drop indicators — replace with warm peach */
+.mosaic-theme-dark .drop-target-container .drop-target {
+  background: rgba(232, 168, 114, 0.12) !important;
+  border: 1px solid rgba(232, 168, 114, 0.35) !important;
+  border-radius: 4px;
+}
+
+/* ─── Light mode: remap Tailwind stone-* text and bg colors ──────── */
+/* These overrides fix the ~23 component files that use hardcoded     */
+/* stone-* classes designed for dark backgrounds.                     */
+
+[data-theme="light"] .text-stone-100 { color: #1c1917 !important; }
+[data-theme="light"] .text-stone-200 { color: #292524 !important; }
+[data-theme="light"] .text-stone-300 { color: #44403c !important; }
+[data-theme="light"] .text-stone-400 { color: #57534e !important; }
+[data-theme="light"] .text-stone-500 { color: #78716c !important; }
+[data-theme="light"] .text-stone-600 { color: #a8a29e !important; }
+[data-theme="light"] .text-stone-700 { color: #d6d3d1 !important; }
+
+[data-theme="light"] .text-\[\#e8a872\] { color: #b06b1f !important; }
+[data-theme="light"] .text-\[\#f0c59c\] { color: #a0621e !important; }
+
+/* Background mappings: dark surfaces → light surfaces */
+[data-theme="light"] .bg-stone-800 { background-color: #e7e5e4 !important; }
+[data-theme="light"] .bg-stone-800\/40 { background-color: rgba(231, 229, 228, 0.4) !important; }
+[data-theme="light"] .bg-stone-800\/30 { background-color: rgba(231, 229, 228, 0.3) !important; }
+[data-theme="light"] .bg-stone-800\/50 { background-color: rgba(231, 229, 228, 0.5) !important; }
+[data-theme="light"] .bg-stone-700\/60 { background-color: rgba(214, 211, 209, 0.6) !important; }
+[data-theme="light"] .bg-stone-900 { background-color: #f5f5f4 !important; }
+
+/* Hover states */
+[data-theme="light"] .hover\:text-stone-100:hover { color: #1c1917 !important; }
+[data-theme="light"] .hover\:text-stone-200:hover { color: #292524 !important; }
+[data-theme="light"] .hover\:text-stone-300:hover { color: #44403c !important; }
+[data-theme="light"] .hover\:bg-stone-800:hover { background-color: #e7e5e4 !important; }
+[data-theme="light"] .hover\:bg-stone-800\/30:hover { background-color: rgba(231, 229, 228, 0.3) !important; }
+[data-theme="light"] .hover\:bg-stone-700\/60:hover { background-color: rgba(214, 211, 209, 0.6) !important; }
+[data-theme="light"] .hover\:text-amber-400:hover { color: #b06b1f !important; }
+
+/* Border mappings */
+[data-theme="light"] .border-stone-800 { border-color: #d6d3d1 !important; }
+[data-theme="light"] .border-stone-800\/50 { border-color: rgba(214, 211, 209, 0.5) !important; }
+[data-theme="light"] .border-stone-800\/60 { border-color: rgba(214, 211, 209, 0.6) !important; }
+[data-theme="light"] .border-stone-700 { border-color: #d6d3d1 !important; }
+[data-theme="light"] .border-stone-700\/60 { border-color: rgba(214, 211, 209, 0.6) !important; }
+
+/* Accent color mappings */
+[data-theme="light"] .bg-\[\#e8a872\]\/10 { background-color: rgba(176, 107, 31, 0.1) !important; }
+[data-theme="light"] .bg-\[\#e8a872\]\/20 { background-color: rgba(176, 107, 31, 0.2) !important; }
+[data-theme="light"] .ring-\[\#e8a872\]\/25 { --tw-ring-color: rgba(176, 107, 31, 0.25) !important; }
+[data-theme="light"] .ring-\[\#e8a872\]\/40 { --tw-ring-color: rgba(176, 107, 31, 0.4) !important; }
+
+/* Data-selected state for cmdk */
+[data-theme="light"] .data-\[selected\=true\]\:bg-\[rgba\(232\,168\,114\,0\.12\)\][data-selected="true"] {
+  background-color: rgba(176, 107, 31, 0.12) !important;
+}
+[data-theme="light"] .data-\[selected\=true\]\:text-\[\#e8a872\][data-selected="true"] {
+  color: #b06b1f !important;
+}
+
+/* Group-hover states */
+[data-theme="light"] .group:hover .group-hover\:text-stone-200 { color: #292524 !important; }
+[data-theme="light"] .group:hover .group-hover\:text-stone-500 { color: #78716c !important; }
+
+/* Emerald dot for running sessions */
+[data-theme="light"] .bg-emerald-400 { background-color: #16a34a !important; }
+
+/* Inline style overrides for hardcoded hex colors in remaining components */
+[data-theme="light"] [style*="background-color: #1c1917"],
+[data-theme="light"] [style*="backgroundColor: #1c1917"] {
+  background-color: var(--bg-primary) !important;
+}
+[data-theme="light"] [style*="background-color: #171412"],
+[data-theme="light"] [style*="backgroundColor: #171412"] {
+  background-color: var(--bg-terminal) !important;
+}
+[data-theme="light"] [style*="background-color: #1e1b18"],
+[data-theme="light"] [style*="backgroundColor: #1e1b18"] {
+  background-color: var(--bg-sidebar) !important;
+}
+[data-theme="light"] [style*="background-color: #141210"],
+[data-theme="light"] [style*="backgroundColor: #141210"] {
+  background-color: var(--bg-elevated) !important;
+}

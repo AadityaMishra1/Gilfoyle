@@ -1,0 +1,218 @@
+{
+  "plugins": [
+    {
+      "id": "superpowers",
+      "name": "Superpowers",
+      "description": "7-phase structured development: TDD, debugging, brainstorming, code review, and planning workflows",
+      "category": "toolkit",
+      "stars": 102700,
+      "repo": "obra/superpowers",
+      "installCommand": "claude plugin install superpowers@claude-plugins-official",
+      "tags": ["toolkit", "tdd", "debugging", "planning", "code-review"],
+      "essential": true,
+      "installType": "plugin",
+      "pluginIds": ["superpowers"]
+    },
+    {
+      "id": "claude-mem",
+      "name": "Claude Memory",
+      "description": "Persistent memory across sessions — auto-captures context and injects it into future sessions",
+      "category": "memory",
+      "stars": 31800,
+      "repo": "thedotmack/claude-mem",
+      "installCommand": "npm install -g claude-mem",
+      "tags": ["memory", "context", "persistence"],
+      "essential": true
+    },
+    {
+      "id": "github-mcp",
+      "name": "GitHub MCP Server",
+      "description": "Official GitHub MCP server for reading repos, managing issues/PRs, automating workflows",
+      "category": "mcp",
+      "stars": 15000,
+      "repo": "github/github-mcp-server",
+      "installCommand": "claude mcp add github -- npx -y @modelcontextprotocol/server-github",
+      "tags": ["mcp", "github", "integration"],
+      "essential": true,
+      "pluginIds": ["github"]
+    },
+    {
+      "id": "context7-mcp",
+      "name": "Context7 MCP",
+      "description": "Live library documentation — fetches up-to-date docs and code examples for any library in real time",
+      "category": "mcp",
+      "stars": 8500,
+      "repo": "upstash/context7",
+      "installCommand": "claude mcp add context7 -- npx -y @upstash/context7-mcp@latest",
+      "tags": ["mcp", "docs", "libraries", "documentation"],
+      "essential": true,
+      "pluginIds": ["context7"]
+    },
+    {
+      "id": "ccusage",
+      "name": "ccusage",
+      "description": "Analyze Claude Code usage from JSONL files with token cost breakdown and charts",
+      "category": "analytics",
+      "stars": 10100,
+      "repo": "ryoppippi/ccusage",
+      "installCommand": "npm install -g ccusage",
+      "tags": ["analytics", "cost", "tokens"],
+      "essential": true
+    },
+    {
+      "id": "playwright-mcp",
+      "name": "Playwright MCP Server",
+      "description": "Browser automation and E2E testing — interact with web pages, take screenshots, run tests",
+      "category": "mcp",
+      "stars": 7200,
+      "repo": "executeautomation/playwright-mcp-server",
+      "installCommand": "claude mcp add playwright -- npx -y @executeautomation/playwright-mcp-server",
+      "tags": ["mcp", "testing", "browser", "e2e"],
+      "essential": true,
+      "pluginIds": ["playwright"]
+    },
+    {
+      "id": "claude-skills",
+      "name": "Claude Skills Library",
+      "description": "192+ skills for engineering, marketing, product, and compliance workflows",
+      "category": "skills",
+      "stars": 5200,
+      "repo": "alirezarezvani/claude-skills",
+      "installCommand": "git clone https://github.com/alirezarezvani/claude-skills",
+      "tags": ["skills", "workflows", "productivity"],
+      "essential": false
+    },
+    {
+      "id": "claude-hooks",
+      "name": "Claude Code Hooks",
+      "description": "Collection of reusable hooks for automation and workflow integration",
+      "category": "hooks",
+      "stars": 4500,
+      "repo": "karanb192/claude-code-hooks",
+      "installCommand": "git clone https://github.com/karanb192/claude-code-hooks",
+      "tags": ["hooks", "automation", "workflows"],
+      "essential": false
+    },
+    {
+      "id": "dippy",
+      "name": "Dippy",
+      "description": "Smart bash hook that auto-approves safe commands, prompts for destructive operations",
+      "category": "security",
+      "stars": 4200,
+      "repo": "ldayton/Dippy",
+      "installCommand": "npm install -g dippy-cli",
+      "tags": ["security", "hooks", "bash"],
+      "essential": false
+    },
+    {
+      "id": "parry-guard",
+      "name": "Parry Guard",
+      "description": "Prompt injection scanner using DeBERTa and Llama to detect attacks and secrets",
+      "category": "security",
+      "stars": 2800,
+      "repo": "vaporif/parry-guard",
+      "installCommand": "npm install -g parry-guard",
+      "tags": ["security", "scanning", "injection"],
+      "essential": false
+    },
+    {
+      "id": "ralph",
+      "name": "Ralph",
+      "description": "Autonomous loop framework with intelligent exit detection and safety guardrails",
+      "category": "automation",
+      "stars": 2000,
+      "repo": "frankbria/ralph-claude-code",
+      "installCommand": "npm install -g ralph-claude",
+      "tags": ["automation", "loops", "safety"],
+      "essential": false,
+      "pluginIds": ["ralph-loop"]
+    },
+    {
+      "id": "usage-monitor",
+      "name": "Usage Monitor",
+      "description": "Real-time terminal monitor for token usage with ML-based predictions and warnings",
+      "category": "analytics",
+      "stars": 2400,
+      "repo": "Maciek-roboblog/Claude-Code-Usage-Monitor",
+      "installCommand": "pip install claude-usage-monitor",
+      "tags": ["analytics", "monitoring", "predictions"],
+      "essential": false
+    },
+    {
+      "id": "claudekit",
+      "name": "Claudekit",
+      "description": "Custom commands, hooks, utilities with auto-save, quality hooks, and 20+ subagents",
+      "category": "toolkit",
+      "stars": 2100,
+      "repo": "carlrannaberg/claudekit",
+      "installCommand": "git clone https://github.com/carlrannaberg/claudekit",
+      "tags": ["toolkit", "commands", "agents"],
+      "essential": false
+    },
+    {
+      "id": "safety-net",
+      "name": "Safety Net",
+      "description": "Catches destructive git and filesystem commands before execution",
+      "category": "security",
+      "stars": 1800,
+      "repo": "kenryu42/claude-code-safety-net",
+      "installCommand": "npm install -g claude-code-safety-net",
+      "tags": ["security", "safety", "git"],
+      "essential": false
+    },
+    {
+      "id": "claude-sandbox",
+      "name": "Claude Sandbox",
+      "description": "Docker-based isolated environment for running Claude Code with full autonomy safely",
+      "category": "security",
+      "stars": 1400,
+      "repo": "rsh3khar/claude-sandbox",
+      "installCommand": "docker pull claudesandbox/claude-sandbox",
+      "tags": ["security", "sandbox", "docker"],
+      "essential": false
+    },
+    {
+      "id": "filesystem-mcp",
+      "name": "Filesystem MCP",
+      "description": "Official MCP server for safe filesystem operations with configurable access controls",
+      "category": "mcp",
+      "stars": 6800,
+      "repo": "modelcontextprotocol/servers",
+      "installCommand": "claude mcp add filesystem -- npx -y @modelcontextprotocol/server-filesystem /path/to/allowed",
+      "tags": ["mcp", "filesystem", "files"],
+      "essential": false
+    },
+    {
+      "id": "postgres-mcp",
+      "name": "Postgres MCP Server",
+      "description": "Read-only PostgreSQL MCP server for database introspection and query execution",
+      "category": "mcp",
+      "stars": 4100,
+      "repo": "modelcontextprotocol/servers",
+      "installCommand": "claude mcp add postgres -- npx -y @modelcontextprotocol/server-postgres $DATABASE_URL",
+      "tags": ["mcp", "database", "postgres", "sql"],
+      "essential": false
+    },
+    {
+      "id": "firecrawl-mcp",
+      "name": "Firecrawl MCP",
+      "description": "Web scraping and crawling — extract structured data from any website for context",
+      "category": "mcp",
+      "stars": 3500,
+      "repo": "mendableai/firecrawl-mcp-server",
+      "installCommand": "claude mcp add firecrawl -- npx -y firecrawl-mcp",
+      "tags": ["mcp", "scraping", "web", "data"],
+      "essential": false
+    }
+  ],
+  "categories": [
+    { "id": "memory", "name": "Memory", "icon": "brain" },
+    { "id": "security", "name": "Security", "icon": "shield" },
+    { "id": "analytics", "name": "Analytics", "icon": "bar-chart-2" },
+    { "id": "automation", "name": "Automation", "icon": "zap" },
+    { "id": "hooks", "name": "Hooks", "icon": "webhook" },
+    { "id": "skills", "name": "Skills", "icon": "graduation-cap" },
+    { "id": "toolkit", "name": "Toolkits", "icon": "wrench" },
+    { "id": "mcp", "name": "MCP Servers", "icon": "plug" }
+  ]
+}
