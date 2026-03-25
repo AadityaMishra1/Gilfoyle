@@ -92,6 +92,11 @@ export function registerIpcHandlers(
       });
     }
   });
+  // When OAuth API is rate-limited, send /usage to an active PTY session
+  // as a fallback. The PTY output parser captures the usage data automatically.
+  oauthUsage.setPtyFallback(() => {
+    ptyManager.requestUsage();
+  });
   oauthUsage.startPolling();
 
   // Per-file JSONL parsers, keyed by absolute file path.

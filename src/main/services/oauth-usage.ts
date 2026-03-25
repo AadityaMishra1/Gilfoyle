@@ -20,8 +20,8 @@ export interface OAuthUsageData {
 // ─── Service ────────────────────────────────────────────────────────────────
 
 const USAGE_ENDPOINT = "https://api.anthropic.com/api/oauth/usage";
-const CACHE_TTL_MS = 60_000; // 60s in-memory cache
-const POLL_INTERVAL_MS = 120_000; // Poll every 2 minutes
+const CACHE_TTL_MS = 300_000; // 5-minute in-memory cache (usage changes slowly)
+const POLL_INTERVAL_MS = 300_000; // Poll every 5 minutes (avoids API rate-limiting)
 const KEYCHAIN_SERVICE = "Claude Code-credentials";
 
 /**
@@ -35,6 +35,8 @@ export class OAuthUsageService {
   private cacheFile: string;
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private onUpdate: ((data: OAuthUsageData) => void) | null = null;
+  /** Fires when API is rate-limited — triggers PTY /usage as fallback. */
+  private onPtyFallback: (() => void) | null = null;
   /** In-flight fetch promise — prevents concurrent API calls from component re-mounts. */
   private inflight: Promise<OAuthUsageData | null> | null = null;
 
@@ -48,6 +50,19 @@ export class OAuthUsageService {
    */
   setUpdateCallback(cb: (data: OAuthUsageData) => void): void {
     this.onUpdate = cb;
+    // Push cached data immediately so the renderer has something to display
+    // even before the first API call (which may be rate-limited).
+    if (this.cached !== null) {
+      cb(this.cached);
+    }
+  }
+
+  /**
+   * Register a fallback that runs when the API is rate-limited.
+   * Wired to ptyManager.requestUsage() to send /usage to an active session.
+   */
+  setPtyFallback(cb: () => void): void {
+    this.onPtyFallback = cb;
   }
 
   /**
@@ -125,8 +140,10 @@ export class OAuthUsageService {
       });
 
       if (!response.ok) {
-        // 429 = rate limited, just return cached data
-        if (response.status === 429) return this.cached;
+        // Rate-limited or other error — push cached data to renderer and
+        // trigger PTY /usage fallback for fresh data from the CLI.
+        if (this.cached && this.onUpdate) this.onUpdate(this.cached);
+        if (this.onPtyFallback) this.onPtyFallback();
         return this.cached;
       }
 
