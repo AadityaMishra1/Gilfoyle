@@ -179,31 +179,60 @@ export class OAuthUsageService {
   }
 
   /**
-   * Extract the OAuth access token from macOS Keychain.
+   * Extract the OAuth access token.
+   *
+   * On macOS, reads from the Keychain where Claude Code stores credentials.
+   * On Windows/Linux, falls back to reading Claude Code's credential file from disk.
    */
   private extractOAuthToken(): string | null {
-    if (process.platform !== "darwin") return null;
+    // macOS: read from Keychain
+    if (process.platform === "darwin") {
+      try {
+        const raw = execFileSync(
+          "security",
+          ["find-generic-password", "-s", KEYCHAIN_SERVICE, "-w"],
+          { encoding: "utf8", timeout: 5000 },
+        ).trim();
 
-    try {
-      const raw = execFileSync(
-        "security",
-        ["find-generic-password", "-s", KEYCHAIN_SERVICE, "-w"],
-        { encoding: "utf8", timeout: 5000 },
-      ).trim();
+        const parsed = JSON.parse(raw) as Record<string, unknown>;
+        const oauthEntry = parsed["claudeAiOauth"] as
+          | Record<string, unknown>
+          | undefined;
+        if (oauthEntry && typeof oauthEntry["accessToken"] === "string") {
+          return oauthEntry["accessToken"] as string;
+        }
 
-      // The keychain entry is a JSON string containing multiple credentials.
-      const parsed = JSON.parse(raw) as Record<string, unknown>;
-      const oauthEntry = parsed["claudeAiOauth"] as
-        | Record<string, unknown>
-        | undefined;
-      if (oauthEntry && typeof oauthEntry["accessToken"] === "string") {
-        return oauthEntry["accessToken"] as string;
+        return null;
+      } catch {
+        return null;
       }
-
-      return null;
-    } catch {
-      return null;
     }
+
+    // Windows/Linux: try to read from Claude Code's credential file on disk.
+    // Claude Code may store credentials at ~/.claude/credentials.json or similar.
+    try {
+      const home = process.env.HOME ?? process.env.USERPROFILE ?? "";
+      const credPaths = [
+        path.join(home, ".claude", "credentials.json"),
+        path.join(home, ".claude", ".credentials.json"),
+      ];
+
+      for (const credPath of credPaths) {
+        if (!fs.existsSync(credPath)) continue;
+        const raw = fs.readFileSync(credPath, "utf8");
+        const parsed = JSON.parse(raw) as Record<string, unknown>;
+        const oauthEntry = parsed["claudeAiOauth"] as
+          | Record<string, unknown>
+          | undefined;
+        if (oauthEntry && typeof oauthEntry["accessToken"] === "string") {
+          return oauthEntry["accessToken"] as string;
+        }
+      }
+    } catch {
+      // Non-fatal — credential file may not exist
+    }
+
+    return null;
   }
 
   private persistToDisk(data: OAuthUsageData): void {

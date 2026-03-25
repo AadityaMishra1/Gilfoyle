@@ -302,3 +302,167 @@ body,
 [data-theme="light"] [style*="backgroundColor: #141210"] {
   background-color: var(--bg-elevated) !important;
 }
+
+/* ─── Light mode: additional Tailwind class remaps ────────────────── */
+
+/* zinc-* classes used in TreeView, DiffViewer, Tooltip, Button, Badge */
+[data-theme="light"] .text-zinc-200 { color: #44403c !important; }
+[data-theme="light"] .text-zinc-300 { color: #57534e !important; }
+[data-theme="light"] .text-zinc-400 { color: #78716c !important; }
+[data-theme="light"] .text-zinc-500 { color: #a8a29e !important; }
+[data-theme="light"] .text-zinc-600 { color: #a8a29e !important; }
+[data-theme="light"] .text-zinc-700 { color: #d6d3d1 !important; }
+[data-theme="light"] .text-zinc-900 { color: #fafaf9 !important; }
+[data-theme="light"] .bg-zinc-800 { background-color: #e7e5e4 !important; }
+[data-theme="light"] .bg-zinc-800\/60 { background-color: rgba(231, 229, 228, 0.6) !important; }
+[data-theme="light"] .bg-zinc-900 { background-color: #f5f5f4 !important; }
+[data-theme="light"] .hover\:bg-zinc-800:hover { background-color: #e7e5e4 !important; }
+[data-theme="light"] .hover\:bg-zinc-800\/60:hover { background-color: rgba(231, 229, 228, 0.6) !important; }
+[data-theme="light"] .hover\:bg-zinc-700:hover { background-color: #d6d3d1 !important; }
+[data-theme="light"] .hover\:text-zinc-100:hover { color: #1c1917 !important; }
+[data-theme="light"] .hover\:text-zinc-200:hover { color: #292524 !important; }
+[data-theme="light"] .border-zinc-700 { border-color: #d6d3d1 !important; }
+[data-theme="light"] .border-zinc-800 { border-color: #e7e5e4 !important; }
+[data-theme="light"] .border-zinc-800\/60 { border-color: rgba(231, 229, 228, 0.6) !important; }
+[data-theme="light"] .divide-zinc-800\/60 > :not([hidden]) ~ :not([hidden]) { border-color: rgba(231, 229, 228, 0.6) !important; }
+[data-theme="light"] .hover\:border-zinc-600:hover { border-color: #a8a29e !important; }
+[data-theme="light"] .border-t-zinc-700 { border-top-color: #d6d3d1 !important; }
+[data-theme="light"] .border-b-zinc-700 { border-bottom-color: #d6d3d1 !important; }
+[data-theme="light"] .border-l-zinc-700 { border-left-color: #d6d3d1 !important; }
+[data-theme="light"] .border-r-zinc-700 { border-right-color: #d6d3d1 !important; }
+[data-theme="light"] .focus-visible\:ring-offset-zinc-900 { --tw-ring-offset-color: #fafaf9 !important; }
+
+/* amber-* classes used in Button, Badge, TreeView, file icons */
+[data-theme="light"] .bg-amber-500 { background-color: #b06b1f !important; }
+[data-theme="light"] .hover\:bg-amber-400:hover { background-color: #c2782a !important; }
+[data-theme="light"] .border-amber-500 { border-color: #b06b1f !important; }
+[data-theme="light"] .hover\:border-amber-400:hover { border-color: #c2782a !important; }
+[data-theme="light"] .focus-visible\:ring-amber-500 { --tw-ring-color: #b06b1f !important; }
+[data-theme="light"] .text-amber-300 { color: #92400e !important; }
+[data-theme="light"] .text-amber-400 { color: #b06b1f !important; }
+[data-theme="light"] .text-amber-400\/70 { color: rgba(176, 107, 31, 0.7) !important; }
+[data-theme="light"] .text-amber-400\/80 { color: rgba(176, 107, 31, 0.8) !important; }
+[data-theme="light"] .text-amber-400\/90 { color: rgba(176, 107, 31, 0.9) !important; }
+[data-theme="light"] .text-amber-500 { color: #92400e !important; }
+[data-theme="light"] .bg-amber-400 { background-color: #c2782a !important; }
+[data-theme="light"] .bg-amber-500\/15 { background-color: rgba(176, 107, 31, 0.12) !important; }
+[data-theme="light"] .hover\:bg-amber-500\/20:hover { background-color: rgba(176, 107, 31, 0.18) !important; }
+[data-theme="light"] .bg-amber-900\/10 { background-color: rgba(176, 107, 31, 0.08) !important; }
+[data-theme="light"] .hover\:bg-amber-900\/20:hover { background-color: rgba(176, 107, 31, 0.15) !important; }
+[data-theme="light"] .bg-amber-950\/60 { background-color: rgba(194, 120, 42, 0.12) !important; }
+[data-theme="light"] .border-amber-900\/60 { border-color: rgba(194, 120, 42, 0.25) !important; }
+
+/* green-* classes used in Badge, success states, onboarding */
+[data-theme="light"] .text-green-400 { color: #16a34a !important; }
+[data-theme="light"] .text-green-300 { color: #16a34a !important; }
+[data-theme="light"] .text-green-600 { color: #16a34a !important; }
+[data-theme="light"] .bg-green-400 { background-color: #16a34a !important; }
+[data-theme="light"] .bg-green-500\/10 { background-color: rgba(22, 163, 74, 0.1) !important; }
+[data-theme="light"] .border-green-500\/30 { border-color: rgba(22, 163, 74, 0.3) !important; }
+[data-theme="light"] .bg-green-950\/60 { background-color: rgba(22, 163, 74, 0.1) !important; }
+[data-theme="light"] .bg-green-900\/20 { background-color: rgba(22, 163, 74, 0.12) !important; }
+[data-theme="light"] .border-green-900\/60 { border-color: rgba(22, 163, 74, 0.25) !important; }
+
+/* red-* classes used in Badge, DiffViewer, error states */
+[data-theme="light"] .text-red-400 { color: #dc2626 !important; }
+[data-theme="light"] .text-red-300 { color: #dc2626 !important; }
+[data-theme="light"] .text-red-600 { color: #dc2626 !important; }
+[data-theme="light"] .bg-red-950\/60 { background-color: rgba(220, 38, 38, 0.08) !important; }
+[data-theme="light"] .bg-red-900\/20 { background-color: rgba(220, 38, 38, 0.1) !important; }
+[data-theme="light"] .border-red-900\/60 { border-color: rgba(220, 38, 38, 0.2) !important; }
+
+/* blue-* classes used in Badge, info states */
+[data-theme="light"] .text-blue-400 { color: #2563eb !important; }
+[data-theme="light"] .bg-blue-950\/60 { background-color: rgba(37, 99, 235, 0.08) !important; }
+[data-theme="light"] .border-blue-900\/60 { border-color: rgba(37, 99, 235, 0.2) !important; }
+
+/* yellow-* classes used in TreeView for JSON icons */
+[data-theme="light"] .text-yellow-500\/70 { color: rgba(146, 64, 14, 0.7) !important; }
+
+/* stone-50 used as white text in dark mode → dark text in light mode */
+[data-theme="light"] .text-stone-50 { color: #1c1917 !important; }
+
+/* Additional hover states for sidebar buttons */
+[data-theme="light"] .hover\:text-stone-400:hover { color: #57534e !important; }
+[data-theme="light"] .hover\:text-stone-500:hover { color: #78716c !important; }
+
+/* Hardcoded peach accent classes used across many components */
+[data-theme="light"] .bg-\[\#e8a872\]\/15 { background-color: rgba(176, 107, 31, 0.12) !important; }
+[data-theme="light"] .bg-\[\#e8a872\]\/25 { background-color: rgba(176, 107, 31, 0.2) !important; }
+[data-theme="light"] .bg-\[\#e8a872\]\/40 { background-color: rgba(176, 107, 31, 0.3) !important; }
+[data-theme="light"] .hover\:bg-\[\#e8a872\]\/25:hover { background-color: rgba(176, 107, 31, 0.2) !important; }
+[data-theme="light"] .hover\:bg-\[\#e8a872\]\/50:hover { background-color: rgba(176, 107, 31, 0.35) !important; }
+[data-theme="light"] .group-hover\:bg-\[\#e8a872\]\/50 { background-color: rgba(176, 107, 31, 0.35) !important; }
+[data-theme="light"] .ring-\[\#e8a872\]\/30 { --tw-ring-color: rgba(176, 107, 31, 0.3) !important; }
+[data-theme="light"] .hover\:ring-\[\#e8a872\]\/50:hover { --tw-ring-color: rgba(176, 107, 31, 0.5) !important; }
+[data-theme="light"] .text-\[\#e8a872\]\/80 { color: rgba(176, 107, 31, 0.8) !important; }
+[data-theme="light"] .hover\:text-\[\#e8a872\]:hover { color: #b06b1f !important; }
+[data-theme="light"] .hover\:border-\[\#e8a872\]\/40:hover { border-color: rgba(176, 107, 31, 0.4) !important; }
+[data-theme="light"] .focus\:border-\[\#e8a872\]\/40:focus { border-color: rgba(176, 107, 31, 0.4) !important; }
+[data-theme="light"] .focus\:ring-\[\#e8a872\]\/20:focus { --tw-ring-color: rgba(176, 107, 31, 0.2) !important; }
+
+/* ─── Light mode: inline style overrides for component backgrounds ── */
+
+/* Nearly-black backgrounds used in ToolsPanel, ProjectFiles, DiscoverPanel */
+[data-theme="light"] [style*="background-color: #0e0c0b"],
+[data-theme="light"] [style*="backgroundColor: #0e0c0b"] {
+  background-color: var(--bg-primary) !important;
+}
+[data-theme="light"] [style*="background-color: #292524"],
+[data-theme="light"] [style*="backgroundColor: #292524"] {
+  background-color: var(--bg-surface) !important;
+}
+[data-theme="light"] [style*="background-color: #1a1614"],
+[data-theme="light"] [style*="backgroundColor: #1a1614"] {
+  background-color: var(--bg-elevated) !important;
+}
+
+/* Hardcoded border/surface colors in onboarding */
+[data-theme="light"] [style*="border-color: #3a3533"],
+[data-theme="light"] [style*="borderColor: #3a3533"] {
+  border-color: var(--border) !important;
+}
+
+/* Accent color text in onboarding/components */
+[data-theme="light"] [style*="color: #e8a872"] {
+  color: var(--accent-primary) !important;
+}
+[data-theme="light"] [style*="color: #78716c"] {
+  color: var(--text-muted) !important;
+}
+[data-theme="light"] [style*="color: #57534e"] {
+  color: var(--text-dim) !important;
+}
+
+/* Onboarding card and dialog backgrounds */
+[data-theme="light"] [style*="backgroundColor: rgba(41,37,36"] {
+  background-color: var(--bg-surface) !important;
+}
+[data-theme="light"] [style*="backgroundColor: rgba(41, 37, 36"] {
+  background-color: var(--bg-surface) !important;
+}
+[data-theme="light"] [style*="backgroundColor: rgba(23,20,18"] {
+  background-color: var(--backdrop) !important;
+}
+[data-theme="light"] [style*="backgroundColor: rgba(23, 20, 18"] {
+  background-color: var(--backdrop) !important;
+}
+
+/* Hardcoded dark shadows for light mode */
+[data-theme="light"] [style*="boxShadow: 0 0 0 1px rgba(255,255,255"] {
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.06), 0 32px 64px rgba(0, 0, 0, 0.1) !important;
+}
+
+/* Step indicator in onboarding */
+[data-theme="light"] [style*="backgroundColor: #7c4a1e"] {
+  background-color: var(--accent-muted) !important;
+}
+[data-theme="light"] [style*="backgroundColor: #44403c"] {
+  background-color: var(--border) !important;
+}
+
+/* DiscoverPanel overlay */
+[data-theme="light"] [style*="backgroundColor: rgba(0,0,0,0.65)"],
+[data-theme="light"] [style*="backgroundColor: rgba(0, 0, 0, 0.65)"] {
+  background-color: rgba(0, 0, 0, 0.3) !important;
+}

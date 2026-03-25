@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, webUtils } from "electron";
 import { IPC_CHANNELS } from "../shared/ipc-channels";
 import type {
   SessionCreateOptions,
@@ -33,6 +33,9 @@ const api = {
 
   killSession: (sessionId: string): Promise<void> =>
     ipcRenderer.invoke(IPC_CHANNELS.SESSION_KILL, sessionId),
+
+  getChildProcesses: (sessionId: string): Promise<string[]> =>
+    ipcRenderer.invoke(IPC_CHANNELS.SESSION_GET_CHILD_PROCESSES, sessionId),
 
   listSessions: (): Promise<SessionListEntry[]> =>
     ipcRenderer.invoke(IPC_CHANNELS.SESSION_LIST),
@@ -254,6 +257,10 @@ const api = {
   ): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke(IPC_CHANNELS.PLUGIN_INSTALL, installCommand),
 
+  // Get Claude Code CLI version
+  getClaudeVersion: (): Promise<string | null> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GET_CLAUDE_VERSION),
+
   // Stream events (agent tool_use, tool_result from JSONL watcher)
   onStreamEvent: (callback: (event: unknown) => void): (() => void) => {
     const handler = (_: Electron.IpcRendererEvent, data: unknown): void =>
@@ -261,6 +268,45 @@ const api = {
     ipcRenderer.on(IPC_CHANNELS.STREAM_EVENT, handler);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.STREAM_EVENT, handler);
   },
+
+  // Get buffered agent stream events (restoring agent list after project switch)
+  getStreamEvents: (): Promise<unknown[]> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GET_STREAM_EVENTS),
+
+  // PTY scrollback replay (for restoring terminal after project switch)
+  getPtyScrollback: (sessionId: string): Promise<string> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GET_PTY_SCROLLBACK, sessionId),
+
+  // File management
+  createFile: (filePath: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.CREATE_FILE, filePath),
+
+  createDir: (dirPath: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.CREATE_DIR, dirPath),
+
+  renameFile: (
+    oldPath: string,
+    newPath: string,
+  ): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.RENAME_FILE, oldPath, newPath),
+
+  trashFile: (filePath: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.TRASH_FILE, filePath),
+
+  fileExists: (filePath: string): Promise<boolean> =>
+    ipcRenderer.invoke(IPC_CHANNELS.FILE_EXISTS, filePath),
+
+  revealInFinder: (filePath: string): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.REVEAL_IN_FINDER, filePath),
+
+  // Get the real filesystem path for a File object from a drag event.
+  getPathForFile: (file: File): string => webUtils.getPathForFile(file),
+
+  copyFilesInto: (
+    sourcePaths: string[],
+    destDir: string,
+  ): Promise<Array<{ src: string; ok: boolean; error?: string }>> =>
+    ipcRenderer.invoke(IPC_CHANNELS.COPY_FILES_INTO, sourcePaths, destDir),
 
   // Git diff for a specific file
   getGitDiff: (

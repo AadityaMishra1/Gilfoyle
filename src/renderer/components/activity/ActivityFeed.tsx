@@ -18,7 +18,7 @@ export function ActivityFeed({
 
   const filtered = getFiltered();
 
-  // Set project filter when projectPath changes.
+  // Set project filter on mount, clear on unmount.
   useEffect(() => {
     setProjectFilter(projectPath ?? null);
     return () => {
@@ -52,7 +52,6 @@ export function ActivityFeed({
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      {/* Scrollable activity list */}
       <div
         className="flex-1 overflow-y-auto overflow-x-hidden"
         role="feed"

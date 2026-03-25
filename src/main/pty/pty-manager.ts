@@ -2,6 +2,7 @@
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const pty: typeof import("node-pty") = require("node-pty");
 import { randomUUID } from "crypto";
+import { execFileSync } from "child_process";
 import { BrowserWindow } from "electron";
 import { IPC_CHANNELS } from "../../shared/ipc-channels";
 import type {
@@ -21,6 +22,8 @@ interface PtySession {
   createdAt: number;
   pid: number;
   process: pty.IPty;
+  /** True if this session spawned claude directly (resume/continue), not a shell */
+  isDirect: boolean;
 }
 
 // ─── Usage data types (shared with renderer) ────────────────────────────────
@@ -112,6 +115,11 @@ export class PtyManager {
   // Last captured usage data (shared across sessions)
   private lastUsageData: ClaudeUsageData | null = null;
 
+  // Scrollback buffer: stores recent PTY output per session so terminals
+  // can recover content after being hidden during project switches.
+  private scrollbackBuffers: Map<string, string[]> = new Map();
+  private static readonly MAX_SCROLLBACK_CHUNKS = 2000;
+
   // External listeners for session exit events
   private exitListeners: Array<(sessionId: string) => void> = [];
 
@@ -126,6 +134,16 @@ export class PtyManager {
 
   getLastUsageData(): ClaudeUsageData | null {
     return this.lastUsageData;
+  }
+
+  /**
+   * Get the scrollback buffer for a session. Used to restore terminal content
+   * after a project switch hid the terminal temporarily.
+   */
+  getScrollback(sessionId: string): string {
+    const buf = this.scrollbackBuffers.get(sessionId);
+    if (!buf || buf.length === 0) return "";
+    return buf.join("");
   }
 
   /**
@@ -179,10 +197,17 @@ export class PtyManager {
           `${home}\\.local\\bin`,
         ]
       : [
+          // Homebrew on Apple Silicon and Intel Macs
           "/opt/homebrew/bin",
           "/usr/local/bin",
+          // Common Linux paths
+          "/usr/bin",
+          "/snap/bin",
+          "/home/linuxbrew/.linuxbrew/bin",
+          // User-local paths
           `${home}/.cargo/bin`,
           `${home}/.local/bin`,
+          `${home}/.nvm/versions/node/current/bin`,
         ];
     const enhancedPath = [...extraPaths, process.env.PATH ?? ""].join(pathSep);
 
@@ -215,12 +240,25 @@ export class PtyManager {
       createdAt: Date.now(),
       pid: ptyProcess.pid,
       process: ptyProcess,
+      isDirect: !!(opts.resumeSessionId || opts.continueSession),
     };
 
     ptyProcess.onData((data: string) => {
       if (this.mainWindow && !this.mainWindow.isDestroyed()) {
         const payload: PtyDataPayload = { sessionId, data };
         this.mainWindow.webContents.send(IPC_CHANNELS.PTY_DATA, payload);
+      }
+
+      // Store in scrollback buffer for terminal recovery after project switch.
+      let buf = this.scrollbackBuffers.get(sessionId);
+      if (!buf) {
+        buf = [];
+        this.scrollbackBuffers.set(sessionId, buf);
+      }
+      buf.push(data);
+      // Cap to prevent unbounded memory growth.
+      if (buf.length > PtyManager.MAX_SCROLLBACK_CHUNKS) {
+        buf.splice(0, buf.length - PtyManager.MAX_SCROLLBACK_CHUNKS);
       }
 
       // ── Usage detection ──────────────────────────────────────────────
@@ -235,6 +273,7 @@ export class PtyManager {
         }
         this.sessions.delete(sessionId);
         this.outputBuffers.delete(sessionId);
+        this.scrollbackBuffers.delete(sessionId);
         const timer = this.usageDetectTimers.get(sessionId);
         if (timer) {
           clearTimeout(timer);
@@ -314,8 +353,59 @@ export class PtyManager {
   kill(sessionId: string): void {
     const session = this.sessions.get(sessionId);
     if (!session) return;
-    session.process.kill();
-    this.sessions.delete(sessionId);
+    this.killProcessTree(session);
+  }
+
+  /**
+   * Get the names of child processes running under the PTY shell.
+   * Returns an array of process command names (e.g. ["claude"], ["vim"]).
+   * Returns empty array if the shell is idle (no child processes).
+   */
+  getChildProcesses(sessionId: string): string[] {
+    const session = this.sessions.get(sessionId);
+    if (!session) return [];
+
+    // For direct claude sessions (resume/continue), the PTY root IS claude.
+    // Always report as running so user gets a confirmation.
+    if (session.isDirect) return ["claude"];
+
+    if (process.platform === "win32") {
+      // On Windows we can't easily inspect child processes.
+      // Return a generic marker so the renderer shows a confirmation.
+      return ["unknown"];
+    }
+
+    try {
+      // pgrep -P <pid> lists direct child PIDs of the shell process.
+      const output = execFileSync("pgrep", ["-P", String(session.pid)], {
+        encoding: "utf8",
+        timeout: 2000,
+      }).trim();
+
+      if (!output) return [];
+
+      const childPids = output.split("\n").filter(Boolean);
+      const processes: string[] = [];
+      for (const childPid of childPids) {
+        try {
+          const comm = execFileSync("ps", ["-p", childPid, "-o", "comm="], {
+            encoding: "utf8",
+            timeout: 2000,
+          }).trim();
+
+          if (comm) {
+            // Strip path prefix (e.g. /usr/bin/vim -> vim)
+            processes.push(comm.split("/").pop() ?? comm);
+          }
+        } catch {
+          continue;
+        }
+      }
+      return processes;
+    } catch {
+      // pgrep returns exit code 1 when no children found — that's expected
+      return [];
+    }
   }
 
   listActive(): SessionListEntry[] {
@@ -324,9 +414,77 @@ export class PtyManager {
 
   destroyAll(): void {
     for (const session of this.sessions.values()) {
-      session.process.kill();
+      this.killProcessTree(session);
     }
+    // Sessions are cleaned up by onExit handlers, but clear the map as a safety net
+    // in case onExit doesn't fire (e.g. during app quit).
     this.sessions.clear();
+  }
+
+  /**
+   * Kill a PTY session and its entire process tree (including child processes
+   * like `claude`).
+   *
+   * Signal escalation strategy:
+   * 1. SIGINT  — Claude CLI handles this like Ctrl+C: gracefully aborts in-flight
+   *              API requests, cancels the current turn, and cleans up.
+   * 2. SIGTERM — After 1.5s if still alive, send SIGTERM for a harder shutdown.
+   * 3. SIGKILL — After another 1.5s if still alive, force-kill.
+   */
+  private killProcessTree(session: PtySession): void {
+    const pid = session.pid;
+
+    const isAlive = (): boolean => {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    const sendSignalToGroup = (signal: NodeJS.Signals): void => {
+      if (process.platform !== "win32") {
+        try {
+          process.kill(-pid, signal);
+        } catch {
+          // Process group may already be dead — ignore ESRCH.
+        }
+      }
+    };
+
+    // Step 1: Send SIGINT to the process group (graceful Claude shutdown).
+    // This is equivalent to the user pressing Ctrl+C in the terminal.
+    sendSignalToGroup("SIGINT");
+
+    // Step 2: After 1.5s, escalate to SIGTERM if still alive.
+    const termTimer = setTimeout(() => {
+      if (!isAlive()) return;
+      sendSignalToGroup("SIGTERM");
+      try {
+        session.process.kill();
+      } catch {
+        // Already dead — ignore.
+      }
+    }, 1500);
+
+    // Step 3: After 3s total, force-kill with SIGKILL if still alive.
+    const killTimer = setTimeout(() => {
+      if (!isAlive()) return;
+      sendSignalToGroup("SIGKILL");
+      try {
+        session.process.kill("SIGKILL");
+      } catch {
+        // Already dead — ignore.
+      }
+    }, 3000);
+
+    // Don't let these timers keep the Node.js event loop alive during app quit.
+    for (const timer of [termTimer, killTimer]) {
+      if (timer && typeof timer === "object" && "unref" in timer) {
+        timer.unref();
+      }
+    }
   }
 
   private requireSession(sessionId: string): PtySession {

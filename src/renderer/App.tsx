@@ -1,4 +1,4 @@
-import React, { useEffect, useCallback, useRef, useState } from "react";
+import React, { useEffect, useCallback, useState } from "react";
 
 import TitleBar from "./components/layout/TitleBar";
 import Sidebar from "./components/layout/Sidebar";
@@ -8,6 +8,7 @@ import ProjectView from "./components/project/ProjectView";
 import OnboardingOverlay from "./components/onboarding/OnboardingOverlay";
 import SettingsPanel from "./components/settings/SettingsPanel";
 import ResizeDivider from "./components/shared/ResizeDivider";
+import ErrorBoundary from "./components/shared/ErrorBoundary";
 
 import { useClaudeAPI } from "./hooks/use-ipc";
 import { useDataLoader } from "./hooks/use-data-loader";
@@ -43,6 +44,7 @@ const App: React.FC = () => {
   const { projects, activeProjectPath, setProjects, setActiveProject } =
     useProjectStore();
   const theme = useSettingsStore((s) => s.theme);
+  const bootedProjects = useTabStore((s) => s.bootedProjects);
 
   // Apply theme data attribute to the root element
   useEffect(() => {
@@ -119,21 +121,48 @@ const App: React.FC = () => {
     >
       <TitleBar />
 
-      <div className="flex-1 flex min-h-0 min-w-0 overflow-hidden">
-        {/* Hide sidebar when no project is active (welcome screen) */}
-        {activeProject !== undefined && !sidebarCollapsed && <Sidebar />}
-        {activeProject !== undefined && !sidebarCollapsed && (
-          <ResizeDivider orientation="vertical" onDrag={handleSidebarDrag} />
-        )}
-
-        <main className="flex-1 min-h-0 min-w-0 overflow-hidden">
-          {activeProject !== undefined ? (
-            <ProjectView projectPath={activeProject.path} />
-          ) : (
-            <NoProjectState />
+      <ErrorBoundary>
+        <div className="flex-1 flex min-h-0 min-w-0 overflow-hidden">
+          {/* Hide sidebar when no project is active (welcome screen) */}
+          {activeProject !== undefined && !sidebarCollapsed && <Sidebar />}
+          {activeProject !== undefined && !sidebarCollapsed && (
+            <ResizeDivider orientation="vertical" onDrag={handleSidebarDrag} />
           )}
-        </main>
-      </div>
+
+          <main className="flex-1 min-h-0 min-w-0 overflow-hidden relative">
+            {/* Keep ALL booted projects mounted so terminals stay alive.
+                Only the active project is visible. */}
+            {projects
+              .filter((p) => bootedProjects.has(p.path))
+              .map((p) => (
+                <div
+                  key={p.path}
+                  className="absolute inset-0"
+                  style={{
+                    visibility:
+                      p.path === activeProjectPath ? "visible" : "hidden",
+                    pointerEvents:
+                      p.path === activeProjectPath ? "auto" : "none",
+                    zIndex: p.path === activeProjectPath ? 1 : 0,
+                  }}
+                >
+                  <ProjectView
+                    projectPath={p.path}
+                    isActive={p.path === activeProjectPath}
+                  />
+                </div>
+              ))}
+            {/* Boot new project if not yet booted */}
+            {activeProject !== undefined &&
+              !bootedProjects.has(activeProject.path) && (
+                <div className="absolute inset-0" style={{ zIndex: 1 }}>
+                  <ProjectView projectPath={activeProject.path} isActive />
+                </div>
+              )}
+            {activeProject === undefined && <NoProjectState />}
+          </main>
+        </div>
+      </ErrorBoundary>
 
       <StatusBar
         projectCount={
@@ -184,7 +213,6 @@ const NoProjectState: React.FC = () => {
     ProjectWithSessions[]
   >([]);
 
-  // Load recent sessions per project on mount
   useEffect(() => {
     const load = async () => {
       try {
@@ -209,7 +237,6 @@ const NoProjectState: React.FC = () => {
 
         setProjectsWithSessions(result);
       } catch {
-        // Fallback: just show projects without session info
         const sorted = projects
           .slice()
           .sort((a, b) => b.lastActiveAt - a.lastActiveAt)

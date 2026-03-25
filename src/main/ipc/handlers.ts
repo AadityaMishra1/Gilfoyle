@@ -3,7 +3,10 @@ import os from "os";
 import fs from "fs";
 import fsPromises from "fs/promises";
 import path from "path";
-import { execFileSync } from "child_process";
+import { execFileSync, execFile } from "child_process";
+import { promisify } from "util";
+
+const execFileAsync = promisify(execFile);
 import { IPC_CHANNELS } from "../../shared/ipc-channels";
 import type { SessionCreateOptions } from "../../shared/ipc-channels";
 import type { PtyManager } from "../pty/pty-manager";
@@ -244,9 +247,25 @@ export function registerIpcHandlers(
     ptyManager.kill(sessionId);
   });
 
+  ipcMain.handle(
+    IPC_CHANNELS.SESSION_GET_CHILD_PROCESSES,
+    (_event, sessionId: string) => {
+      return ptyManager.getChildProcesses(sessionId);
+    },
+  );
+
   ipcMain.handle(IPC_CHANNELS.SESSION_LIST, () => {
     return ptyManager.listActive();
   });
+
+  // ─── PTY scrollback replay ──────────────────────────────────────────────
+
+  ipcMain.handle(
+    IPC_CHANNELS.GET_PTY_SCROLLBACK,
+    (_event, sessionId: string) => {
+      return ptyManager.getScrollback(sessionId);
+    },
+  );
 
   // ─── App information ───────────────────────────────────────────────────
 
@@ -256,6 +275,20 @@ export function registerIpcHandlers(
 
   ipcMain.handle(IPC_CHANNELS.APP_GET_HOME_DIR, () => {
     return os.homedir();
+  });
+
+  // ─── Claude CLI version ───────────────────────────────────────────────
+
+  ipcMain.handle(IPC_CHANNELS.GET_CLAUDE_VERSION, () => {
+    try {
+      const version = execFileSync("claude", ["--version"], {
+        encoding: "utf8",
+        timeout: 5000,
+      }).trim();
+      return version || null;
+    } catch {
+      return null;
+    }
   });
 
   // ─── Session scanning ──────────────────────────────────────────────────
@@ -363,7 +396,7 @@ export function registerIpcHandlers(
 
   ipcMain.handle(IPC_CHANNELS.OPEN_FOLDER_DIALOG, async () => {
     const result = await dialog.showOpenDialog(mainWindow, {
-      properties: ["openDirectory"],
+      properties: ["openDirectory", "createDirectory"],
       title: "Open Project Folder",
     });
     if (result.canceled || result.filePaths.length === 0) return null;
@@ -374,8 +407,8 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     IPC_CHANNELS.SCAN_DIR,
-    (_event, dirPath: string, maxDepth = 3) => {
-      return scanDirectory(dirPath, maxDepth);
+    async (_event, dirPath: string, maxDepth = 3) => {
+      return scanDirectoryAsync(dirPath, maxDepth);
     },
   );
 
@@ -457,19 +490,46 @@ export function registerIpcHandlers(
       const execAsync = promisify(exec);
 
       try {
-        // Validate install command — allow npm, npx, claude plugin, and claude mcp commands
-        const SAFE_INSTALL_CMD =
-          /^(npm\s+install|npx)\s+(@[\w-]+\/)?[\w.-]+(@[\w.-]+)?(\s+--[\w-]+(=[\w.-]+)?)*$/;
-        const SAFE_CLAUDE_CMD =
-          /^claude\s+(plugin\s+install\s+[\w@.-]+|mcp\s+add\s+[\w.-]+(\s+--\s+.+)?)$/;
+        // Validate install command using a whitelist approach:
+        // 1. Block shell injection characters universally
+        // 2. Check command starts with an allowed base command
+        // 3. Validate subcommand for each base command
+        const cmd = installCommand.trim();
+
+        // Step 1: Block shell metacharacters that enable injection
+        // Allow $VARIABLE references (needed for e.g. $DATABASE_URL) but block $()
         if (
-          !SAFE_INSTALL_CMD.test(installCommand.trim()) &&
-          !SAFE_CLAUDE_CMD.test(installCommand.trim())
+          /[;|`<>]|&&|\|\||[^$]\$\(|\$\(/.test(cmd.replace(/\$[A-Z_]+/g, ""))
         ) {
           return {
             ok: false,
+            error: "Install command contains disallowed shell characters.",
+          };
+        }
+
+        // Step 2 & 3: Check against allowed command patterns
+        const ALLOWED_PATTERNS = [
+          // npm install with any flags (-g, --save-dev, etc.) and scoped/unscoped packages
+          /^npm\s+install(\s+-[a-zA-Z]+)*(\s+--[\w-]+(=[\w.-]+)?)*\s+(@[\w-]+\/)?[\w.-]+(@[\w.-]+)?(\s+--[\w-]+(=[\w.-]+)?)*$/,
+          // npx with optional flags (-y, --yes, etc.) and scoped/unscoped packages, plus trailing args
+          /^npx(\s+-[a-zA-Z]+)*(\s+--[\w-]+)?\s+(@[\w-]+\/)?[\w.-]+(@[\w.-]+)?(\s+[\w./@:$-]+)*$/,
+          // claude plugin install
+          /^claude\s+plugin\s+install\s+[\w@.-]+$/,
+          // claude mcp add <name> -- <command> <args...>
+          /^claude\s+mcp\s+add\s+[\w.-]+\s+--\s+npx(\s+-[a-zA-Z]+)*\s+(@[\w-]+\/)?[\w.-]+(@[\w.-]+)?(\s+[\w./@:$-]+)*$/,
+          // pip install
+          /^pip\s+install(\s+-[a-zA-Z]+)*\s+[\w.-]+(@[\w.-]+)?$/,
+          // git clone (https URLs only)
+          /^git\s+clone\s+https:\/\/[\w./-]+$/,
+          // docker pull
+          /^docker\s+pull\s+[\w./-]+(:\w+)?$/,
+        ];
+
+        if (!ALLOWED_PATTERNS.some((pattern) => pattern.test(cmd))) {
+          return {
+            ok: false,
             error:
-              "Invalid install command. Allowed: npm install, npx, claude plugin install, claude mcp add.",
+              "Invalid install command. Allowed: npm install, npx, pip install, git clone, docker pull, claude plugin install, claude mcp add.",
           };
         }
 
@@ -523,26 +583,27 @@ export function registerIpcHandlers(
 
   // ─── Git status ──────────────────────────────────────────────────────
 
-  ipcMain.handle(IPC_CHANNELS.GIT_STATUS, (_event, cwd: string) => {
+  ipcMain.handle(IPC_CHANNELS.GIT_STATUS, async (_event, cwd: string) => {
     if (!cwd || !fs.existsSync(cwd)) return null;
 
-    try {
-      const opts = { cwd, encoding: "utf8" as const, timeout: 5000 };
+    const opts = { cwd, timeout: 5000 };
 
-      // Check if it's a git repo
+    try {
+      // Check if it's a git repo (async — doesn't block main process)
       try {
-        execFileSync("git", ["rev-parse", "--git-dir"], opts);
+        await execFileAsync("git", ["rev-parse", "--git-dir"], opts);
       } catch {
         return null; // Not a git repo
       }
 
       let branch = "";
       try {
-        branch = execFileSync(
+        const { stdout } = await execFileAsync(
           "git",
           ["rev-parse", "--abbrev-ref", "HEAD"],
           opts,
-        ).trim();
+        );
+        branch = stdout.trim();
       } catch {
         branch = "unknown";
       }
@@ -553,13 +614,14 @@ export function registerIpcHandlers(
         timestamp: number;
       }> = [];
       try {
-        const log = execFileSync(
+        const { stdout: log } = await execFileAsync(
           "git",
           ["log", "--format=%H|%s|%at", "-15"],
           opts,
-        ).trim();
-        if (log.length > 0) {
-          commits = log.split("\n").map((line) => {
+        );
+        const trimmed = log.trim();
+        if (trimmed.length > 0) {
+          commits = trimmed.split("\n").map((line) => {
             const [hash = "", message = "", ts = "0"] = line.split("|");
             return {
               hash: hash.slice(0, 8),
@@ -579,13 +641,14 @@ export function registerIpcHandlers(
         deletions?: number;
       }> = [];
       try {
-        const status = execFileSync(
+        const { stdout: status } = await execFileAsync(
           "git",
           ["status", "--porcelain"],
           opts,
-        ).trim();
-        if (status.length > 0) {
-          changes = status.split("\n").map((line) => ({
+        );
+        const trimmed = status.trim();
+        if (trimmed.length > 0) {
+          changes = trimmed.split("\n").map((line) => ({
             status: line.slice(0, 2).trim(),
             file: line.slice(3),
           }));
@@ -594,12 +657,17 @@ export function registerIpcHandlers(
         // ignore
       }
 
-      // Merge numstat for +/- line counts on tracked files
+      // Merge numstat for +/- line counts
       try {
-        const numstat = execFileSync("git", ["diff", "--numstat"], opts).trim();
-        if (numstat.length > 0) {
+        const { stdout: numstat } = await execFileAsync(
+          "git",
+          ["diff", "--numstat"],
+          opts,
+        );
+        const trimmed = numstat.trim();
+        if (trimmed.length > 0) {
           const statMap = new Map<string, { add: number; del: number }>();
-          for (const line of numstat.split("\n")) {
+          for (const line of trimmed.split("\n")) {
             const parts = line.split("\t");
             if (parts.length >= 3) {
               const add = parseInt(parts[0]!, 10);
@@ -632,38 +700,43 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     IPC_CHANNELS.GIT_DIFF,
-    (_event, cwd: string, file: string, commitHash?: string) => {
+    async (_event, cwd: string, file: string, commitHash?: string) => {
       if (!cwd || !fs.existsSync(cwd)) return null;
-      const opts = { cwd, encoding: "utf8" as const, timeout: 5000 };
+      const opts = { cwd, timeout: 5000 };
 
       try {
         let before = "";
         let after = "";
 
         if (commitHash) {
-          // Diff for a specific commit
           try {
-            before = execFileSync(
+            const r = await execFileAsync(
               "git",
               ["show", `${commitHash}^:${file}`],
               opts,
             );
+            before = r.stdout;
           } catch {
             before = "";
           }
           try {
-            after = execFileSync(
+            const r = await execFileAsync(
               "git",
               ["show", `${commitHash}:${file}`],
               opts,
             );
+            after = r.stdout;
           } catch {
             after = "";
           }
         } else {
-          // Working tree diff
           try {
-            before = execFileSync("git", ["show", `HEAD:${file}`], opts);
+            const r = await execFileAsync(
+              "git",
+              ["show", `HEAD:${file}`],
+              opts,
+            );
+            before = r.stdout;
           } catch {
             before = "";
           }
@@ -675,7 +748,7 @@ export function registerIpcHandlers(
             ) {
               after = "";
             } else {
-              after = fs.readFileSync(resolvedPath, "utf8");
+              after = await fsPromises.readFile(resolvedPath, "utf8");
             }
           } catch {
             after = "";
@@ -703,6 +776,100 @@ export function registerIpcHandlers(
       } catch {
         return false;
       }
+    },
+  );
+
+  // ─── File management ─────────────────────────────────────────────────────
+
+  ipcMain.handle(IPC_CHANNELS.CREATE_FILE, (_event, filePath: string) => {
+    try {
+      // Create intermediate directories, then write an empty file.
+      const dir = path.dirname(filePath);
+      fs.mkdirSync(dir, { recursive: true });
+      // Only create if it doesn't already exist.
+      if (!fs.existsSync(filePath)) {
+        fs.writeFileSync(filePath, "", "utf8");
+      }
+      return { ok: true };
+    } catch (err) {
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.CREATE_DIR, (_event, dirPath: string) => {
+    try {
+      fs.mkdirSync(dirPath, { recursive: true });
+      return { ok: true };
+    } catch (err) {
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  });
+
+  ipcMain.handle(
+    IPC_CHANNELS.RENAME_FILE,
+    (_event, oldPath: string, newPath: string) => {
+      try {
+        // Create destination parent directory if needed.
+        const destDir = path.dirname(newPath);
+        fs.mkdirSync(destDir, { recursive: true });
+        fs.renameSync(oldPath, newPath);
+        return { ok: true };
+      } catch (err) {
+        return {
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    },
+  );
+
+  ipcMain.handle(IPC_CHANNELS.TRASH_FILE, async (_event, filePath: string) => {
+    try {
+      const { shell } = await import("electron");
+      await shell.trashItem(filePath);
+      return { ok: true };
+    } catch (err) {
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.FILE_EXISTS, (_event, filePath: string) => {
+    return fs.existsSync(filePath);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.REVEAL_IN_FINDER, (_event, filePath: string) => {
+    const { shell } = require("electron") as typeof import("electron");
+    shell.showItemInFolder(filePath);
+  });
+
+  ipcMain.handle(
+    IPC_CHANNELS.COPY_FILES_INTO,
+    (_event, sourcePaths: string[], destDir: string) => {
+      const results: Array<{ src: string; ok: boolean; error?: string }> = [];
+      for (const src of sourcePaths) {
+        try {
+          const baseName = path.basename(src);
+          const dest = path.join(destDir, baseName);
+          fs.cpSync(src, dest, { recursive: true });
+          results.push({ src, ok: true });
+        } catch (err) {
+          results.push({
+            src,
+            ok: false,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+      return results;
     },
   );
 
@@ -780,10 +947,8 @@ export function registerIpcHandlers(
     if (!deferredDirty) return;
     deferredDirty = false;
 
-    // Run in setTimeout to not block the current call stack
     setTimeout(() => {
       costAggregator.save();
-
       if (!mainWindow.isDestroyed()) {
         const sessions = sessionIndex.scanAll(homeDir);
         mainWindow.webContents.send(IPC_CHANNELS.SESSION_UPDATED, sessions);
@@ -804,12 +969,20 @@ export function registerIpcHandlers(
 
   // Also flush when a PTY session exits (transition from active → idle)
   ptyManager.onSessionExit(() => {
-    // Small delay to let final JSONL writes settle
+    // Delay to let final JSONL writes settle and avoid blocking during
+    // project switches that may coincide with session exits.
     setTimeout(() => {
       if (ptyManager.listActive().length === 0) {
         flushDeferredWork();
       }
     }, 2000);
+  });
+
+  const agentEventBuffer: unknown[] = [];
+  const MAX_AGENT_EVENTS = 200;
+
+  ipcMain.handle(IPC_CHANNELS.GET_STREAM_EVENTS, () => {
+    return [...agentEventBuffer];
   });
 
   function processJsonlLines(
@@ -843,10 +1016,9 @@ export function registerIpcHandlers(
 
       // Parse tool_use events into ActivityEvents.
       if (event.type === "tool_use") {
-        // Derive project path from the JSONL file directory structure.
-        // Files live at ~/.claude/projects/{encoded-cwd}/{session}.jsonl
         const projectsDir = path.join(homeDir, ".claude", "projects");
         const derivedProjectPath = projectPathFromJsonl(filePath, projectsDir);
+
         const activity = parseToolUseToActivity(
           event,
           sessionId,
@@ -875,6 +1047,12 @@ export function registerIpcHandlers(
     // Send batched agent events as single IPC message
     if (agentStreamBatch.length > 0 && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send(IPC_CHANNELS.STREAM_EVENT, agentStreamBatch);
+      for (const evt of agentStreamBatch) {
+        agentEventBuffer.push(evt);
+      }
+      if (agentEventBuffer.length > MAX_AGENT_EVENTS) {
+        agentEventBuffer.splice(0, agentEventBuffer.length - MAX_AGENT_EVENTS);
+      }
     }
 
     if (analyticsChanged) {
@@ -1064,6 +1242,60 @@ function scanDirectory(
 
     if (isDir) {
       node.children = scanDirectory(fullPath, maxDepth, depth + 1, relPath);
+    }
+
+    results.push(node);
+  }
+
+  return results;
+}
+
+// ─── Async directory scanning (doesn't block main process) ──────────────────
+
+async function scanDirectoryAsync(
+  dirPath: string,
+  maxDepth: number,
+  depth = 0,
+  relativePath = "",
+): Promise<ScannedEntry[]> {
+  if (depth >= maxDepth) return [];
+
+  let entries: fs.Dirent[];
+  try {
+    entries = await fsPromises.readdir(dirPath, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+
+  entries.sort((a, b) => {
+    if (a.isDirectory() && !b.isDirectory()) return -1;
+    if (!a.isDirectory() && b.isDirectory()) return 1;
+    return a.name.localeCompare(b.name);
+  });
+
+  const results: ScannedEntry[] = [];
+
+  for (const entry of entries) {
+    if (IGNORED.has(entry.name)) continue;
+    if (entry.name.startsWith(".") && entry.name !== ".env.example") continue;
+
+    const fullPath = path.join(dirPath, entry.name);
+    const isDir = entry.isDirectory();
+    const relPath = relativePath ? `${relativePath}/${entry.name}` : entry.name;
+
+    const node: ScannedEntry = {
+      path: relPath,
+      name: entry.name,
+      isDirectory: isDir,
+    };
+
+    if (isDir) {
+      node.children = await scanDirectoryAsync(
+        fullPath,
+        maxDepth,
+        depth + 1,
+        relPath,
+      );
     }
 
     results.push(node);

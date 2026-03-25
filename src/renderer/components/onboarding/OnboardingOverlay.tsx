@@ -13,10 +13,12 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import Button from "../shared/Button";
+import { useLayoutStore } from "../../stores/layout-store";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const STORAGE_KEY = "gilfoyle:onboarded";
+export const ONBOARDING_STORAGE_KEY = STORAGE_KEY;
 const TOTAL_STEPS = 4;
 const modKey =
   typeof navigator !== "undefined" && navigator.platform.includes("Mac")
@@ -316,7 +318,7 @@ const Step2Layout: React.FC<Step2Props> = ({ choice, onChoose, onNext }) => (
       />
       <LayoutCard
         title="Power"
-        description="Multi-panel dashboard with analytics, agents, MCP, and file explorer open simultaneously."
+        description="Terminal with sidebar, activity feed, tools panel, and file browser."
         ascii={POWER_ASCII}
         icon={<LayoutDashboard size={15} />}
         selected={choice === "power"}
@@ -495,14 +497,6 @@ const OnboardingOverlay: React.FC<OnboardingOverlayProps> = ({
   useEffect(() => {
     const stored = localStorage.getItem(STORAGE_KEY);
     const alreadyDone = stored === "true";
-    console.log(
-      "[Onboarding] storage key:",
-      STORAGE_KEY,
-      "value:",
-      stored,
-      "alreadyDone:",
-      alreadyDone,
-    );
     if (forceShow || !alreadyDone) {
       setVisible(true);
     }
@@ -515,17 +509,26 @@ const OnboardingOverlay: React.FC<OnboardingOverlayProps> = ({
     const detect = async (): Promise<void> => {
       try {
         const api = (
-          window as Window & { claude?: { getPlatform(): Promise<string> } }
+          window as Window & {
+            claude?: {
+              getPlatform(): Promise<string>;
+              getClaudeVersion(): Promise<string | null>;
+            };
+          }
         ).claude;
         if (!api) {
           setClaudeStatus({ detected: false, version: null, loading: false });
           return;
         }
-        // We use getPlatform as a connectivity check; a real version check
-        // would require a dedicated IPC channel. For now we confirm the
-        // preload bridge is alive which implies the app launched correctly.
+        // Check that the preload bridge is alive
         await api.getPlatform();
-        setClaudeStatus({ detected: true, version: null, loading: false });
+        // Get the actual CLI version
+        const version = await api.getClaudeVersion();
+        setClaudeStatus({
+          detected: true,
+          version: version ?? null,
+          loading: false,
+        });
       } catch {
         setClaudeStatus({ detected: false, version: null, loading: false });
       }
@@ -552,10 +555,21 @@ const OnboardingOverlay: React.FC<OnboardingOverlayProps> = ({
   }, [step, goTo]);
 
   const handleDismiss = useCallback(() => {
+    // Apply layout choice before closing
+    if (layoutChoice) {
+      const layout = useLayoutStore.getState();
+      if (layoutChoice === "beginner") {
+        layout.setSidebarCollapsed(true);
+        layout.setInfoPanelCollapsed(true);
+      } else {
+        layout.setSidebarCollapsed(false);
+        layout.setInfoPanelCollapsed(false);
+        layout.setInfoPanelHeight(35);
+      }
+    }
     localStorage.setItem(STORAGE_KEY, "true");
-    console.log("[Onboarding] dismissed — marked onboarded in localStorage");
     setVisible(false);
-  }, []);
+  }, [layoutChoice]);
 
   if (!visible) return null;
 

@@ -90,9 +90,15 @@ const TerminalArea: React.FC<TerminalAreaProps> = ({
   const sessionCounterRef = useRef(0);
   // Track the current projectPath to reset tabs when it changes.
   const prevProjectPathRef = useRef<string | null>(null);
+  // Guard against rapid duplicate tab creation (e.g. double-click on +).
+  const creatingTabRef = useRef(false);
 
   // ─── Spawn a new PTY session and add a tab ─────────────────────────────
   const createTab = useCallback(async () => {
+    // Prevent rapid duplicate tab creation
+    if (creatingTabRef.current) return;
+    creatingTabRef.current = true;
+
     sessionCounterRef.current += 1;
     const name = `Session ${sessionCounterRef.current}`;
 
@@ -107,6 +113,19 @@ const TerminalArea: React.FC<TerminalAreaProps> = ({
       dispatch({ type: "ADD_TAB", tab });
     } catch (err) {
       console.error("[TerminalArea] createSession failed:", err);
+      // Show the error to the user instead of silently failing
+      sessionCounterRef.current -= 1;
+      dispatch({
+        type: "ADD_TAB",
+        tab: {
+          id: `error-${Date.now()}`,
+          name: "Error",
+          isRunning: false,
+          cwd: projectPath,
+        },
+      });
+    } finally {
+      creatingTabRef.current = false;
     }
   }, [claude, projectPath]);
 
@@ -117,6 +136,7 @@ const TerminalArea: React.FC<TerminalAreaProps> = ({
 
     // Reset counter so session names restart from 1 for each project.
     sessionCounterRef.current = 0;
+    creatingTabRef.current = false;
     // Clear existing tabs (PTYs for the old project are left for the OS to
     // clean up — their sessions are still alive in the main process).
     dispatch({ type: "REMOVE_TAB", id: "__reset__" }); // no-op id flushes nothing
@@ -178,7 +198,7 @@ const TerminalArea: React.FC<TerminalAreaProps> = ({
     return (
       <div
         className="flex flex-col w-full h-full overflow-hidden"
-        style={{ backgroundColor: "#171412" }}
+        style={{ backgroundColor: "var(--bg-terminal)" }}
       >
         <TerminalTabBar
           tabs={[]}
@@ -199,7 +219,7 @@ const TerminalArea: React.FC<TerminalAreaProps> = ({
   return (
     <div
       className="flex flex-col w-full h-full overflow-hidden"
-      style={{ backgroundColor: "#171412" }}
+      style={{ backgroundColor: "var(--bg-terminal)" }}
     >
       <TerminalTabBar
         tabs={state.tabs}

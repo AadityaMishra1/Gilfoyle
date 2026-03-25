@@ -1,12 +1,57 @@
 import { app, BrowserWindow, shell } from "electron";
 import path from "path";
 import os from "os";
+import fs from "fs";
 import { PtyManager } from "./pty/pty-manager";
 import { registerIpcHandlers } from "./ipc/handlers";
 import { buildMenu } from "./menu";
 import { OAuthUsageService } from "./services/oauth-usage";
 
 // electron-vite sets this env var during development.
+
+// ─── Window state persistence ─────────────────────────────────────────────
+
+interface WindowState {
+  x?: number;
+  y?: number;
+  width: number;
+  height: number;
+  isMaximized?: boolean;
+}
+
+function getWindowStatePath(): string {
+  return path.join(os.homedir(), ".gilfoyle", "window-state.json");
+}
+
+function loadWindowState(): WindowState {
+  try {
+    const filePath = getWindowStatePath();
+    if (fs.existsSync(filePath)) {
+      const data = JSON.parse(fs.readFileSync(filePath, "utf8")) as WindowState;
+      if (data.width > 0 && data.height > 0) return data;
+    }
+  } catch {
+    // Non-fatal — use defaults
+  }
+  return { width: 1400, height: 900 };
+}
+
+function saveWindowState(win: BrowserWindow): void {
+  try {
+    const bounds = win.getBounds();
+    const state: WindowState = {
+      ...bounds,
+      isMaximized: win.isMaximized(),
+    };
+    const dir = path.dirname(getWindowStatePath());
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    fs.writeFileSync(getWindowStatePath(), JSON.stringify(state), "utf8");
+  } catch {
+    // Non-fatal
+  }
+}
 
 // ─── State ────────────────────────────────────────────────────────────────
 
@@ -19,10 +64,14 @@ let oauthUsage: OAuthUsageService | null = null;
 
 function createMainWindow(): BrowserWindow {
   const isMac = process.platform === "darwin";
+  const savedState = loadWindowState();
 
   const win = new BrowserWindow({
-    width: 1400,
-    height: 900,
+    width: savedState.width,
+    height: savedState.height,
+    ...(savedState.x !== undefined && savedState.y !== undefined
+      ? { x: savedState.x, y: savedState.y }
+      : {}),
     minWidth: 900,
     minHeight: 600,
     backgroundColor: "#171412", // warm dark — prevents white flash on load
@@ -47,6 +96,23 @@ function createMainWindow(): BrowserWindow {
     win.focus();
     // if (isDev()) win.webContents.openDevTools({ mode: "detach" });
   });
+
+  if (savedState.isMaximized) {
+    win.maximize();
+  }
+
+  // Persist window bounds on move/resize (debounced via 500ms timer).
+  let saveTimer: ReturnType<typeof setTimeout> | null = null;
+  const debouncedSave = () => {
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      if (!win.isDestroyed() && !win.isMinimized()) {
+        saveWindowState(win);
+      }
+    }, 500);
+  };
+  win.on("resize", debouncedSave);
+  win.on("move", debouncedSave);
 
   // Open external links in the system browser, not inside Electron.
   win.webContents.setWindowOpenHandler(({ url }) => {

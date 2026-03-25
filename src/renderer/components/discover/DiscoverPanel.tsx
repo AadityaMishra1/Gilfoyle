@@ -58,54 +58,31 @@ const CategoryFilterPill: React.FC<CategoryPillProps> = ({
 
 interface EssentialsBannerProps {
   essentials: PluginEntry[];
-  checkInstalled: (entry: PluginEntry) => boolean;
-  onInstallAll: () => void;
 }
 
-const EssentialsBanner: React.FC<EssentialsBannerProps> = ({
-  essentials,
-  checkInstalled,
-  onInstallAll,
-}) => {
-  const allInstalled = essentials.every((p) => checkInstalled(p));
-  const installedCount = essentials.filter((p) => checkInstalled(p)).length;
-
+const EssentialsBanner: React.FC<EssentialsBannerProps> = ({ essentials }) => {
   return (
     <div className="mx-4 mt-3 p-3 rounded-lg bg-amber-500/5 border border-amber-500/15">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 min-w-0">
-          <ShieldCheck size={14} className="text-amber-400 shrink-0" />
-          <div className="min-w-0">
-            <span
-              className="text-amber-300 font-medium block"
-              style={{
-                fontSize: 12,
-                fontFamily: "'Geist', system-ui, sans-serif",
-              }}
-            >
-              Essential Plugins
-            </span>
-            <span
-              className="text-stone-500 block"
-              style={{ fontSize: 10, fontFamily: "'Geist Mono', monospace" }}
-            >
-              {installedCount}/{essentials.length} installed — recommended for
-              every Claude Code user
-            </span>
-          </div>
-        </div>
-        {!allInstalled && (
-          <button
-            type="button"
-            onClick={onInstallAll}
-            className="shrink-0 px-3 py-1 rounded text-[10px] font-medium
-              bg-amber-500/15 text-amber-300 hover:bg-amber-500/25 transition-colors cursor-pointer
-              ring-1 ring-amber-500/30"
-            style={{ fontFamily: "'Geist', system-ui, sans-serif" }}
+      <div className="flex items-center gap-2 min-w-0">
+        <ShieldCheck size={14} className="text-amber-400 shrink-0" />
+        <div className="min-w-0">
+          <span
+            className="text-amber-300 font-medium block"
+            style={{
+              fontSize: 12,
+              fontFamily: "'Geist', system-ui, sans-serif",
+            }}
           >
-            Install All
-          </button>
-        )}
+            Essential Plugins
+          </span>
+          <span
+            className="text-stone-500 block"
+            style={{ fontSize: 10, fontFamily: "'Geist Mono', monospace" }}
+          >
+            {essentials.length} recommended — click View Repo for install
+            instructions
+          </span>
+        </div>
       </div>
     </div>
   );
@@ -315,7 +292,7 @@ const DiscoverPanel: React.FC = () => {
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
       style={{
-        backgroundColor: "rgba(0,0,0,0.65)",
+        backgroundColor: "var(--backdrop)",
         backdropFilter: "blur(4px)",
       }}
       onClick={handleBackdropClick}
@@ -326,7 +303,7 @@ const DiscoverPanel: React.FC = () => {
       <div
         className="flex flex-col w-full max-w-3xl rounded-xl border border-stone-700/60 overflow-hidden"
         style={{
-          backgroundColor: "#141210",
+          backgroundColor: "var(--bg-elevated)",
           maxHeight: "85vh",
           boxShadow: "0 32px 64px rgba(0,0,0,0.6)",
         }}
@@ -376,13 +353,7 @@ const DiscoverPanel: React.FC = () => {
         </div>
 
         {/* ── Essentials banner ───────────────────────────────────────────── */}
-        {showEssentialsBanner && (
-          <EssentialsBanner
-            essentials={essentials}
-            checkInstalled={isInstalled}
-            onInstallAll={handleInstallAllEssentials}
-          />
-        )}
+        {showEssentialsBanner && <EssentialsBanner essentials={essentials} />}
 
         {/* ── Search + filters ─────────────────────────────────────────────── */}
         <div className="flex flex-col gap-2.5 px-4 py-3 border-b border-stone-800 shrink-0">

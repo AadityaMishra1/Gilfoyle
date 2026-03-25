@@ -1,12 +1,12 @@
-import React, { useEffect, useCallback } from "react";
-import { X, Settings } from "lucide-react";
+import React, { useEffect, useCallback, useState } from "react";
+import { X, Settings, RotateCcw, ExternalLink } from "lucide-react";
 import { useUIStore } from "../../stores/ui-store";
 import {
   useSettingsStore,
   type BillingMode,
-  type PlanTier,
   type AppTheme,
 } from "../../stores/settings-store";
+import { ONBOARDING_STORAGE_KEY } from "../onboarding/OnboardingOverlay";
 
 // ─── Option row ───────────────────────────────────────────────────────────────
 
@@ -91,12 +91,11 @@ const SettingsPanel: React.FC = () => {
   const setSettingsOpen = useUIStore((s) => s.setSettingsOpen);
   const billingMode = useSettingsStore((s) => s.billingMode);
   const setBillingMode = useSettingsStore((s) => s.setBillingMode);
-  const planTier = useSettingsStore((s) => s.planTier);
-  const setPlanTier = useSettingsStore((s) => s.setPlanTier);
   const fontSize = useSettingsStore((s) => s.fontSize);
   const setFontSize = useSettingsStore((s) => s.setFontSize);
   const theme = useSettingsStore((s) => s.theme);
   const setTheme = useSettingsStore((s) => s.setTheme);
+  const [onboardingReset, setOnboardingReset] = useState(false);
 
   // Close on Escape
   useEffect(() => {
@@ -144,7 +143,11 @@ const SettingsPanel: React.FC = () => {
           className="flex items-center gap-3 px-4 py-3 shrink-0"
           style={{ borderBottom: "1px solid var(--border)" }}
         >
-          <Settings size={15} style={{ color: "var(--accent-primary)" }} className="shrink-0" />
+          <Settings
+            size={15}
+            style={{ color: "var(--accent-primary)" }}
+            className="shrink-0"
+          />
           <span
             className="font-semibold flex-1"
             style={{
@@ -161,10 +164,12 @@ const SettingsPanel: React.FC = () => {
             className="flex items-center justify-center w-6 h-6 rounded transition-colors"
             style={{ color: "var(--text-muted)" }}
             onMouseEnter={(e) => {
-              (e.currentTarget as HTMLElement).style.color = "var(--text-primary)";
+              (e.currentTarget as HTMLElement).style.color =
+                "var(--text-primary)";
             }}
             onMouseLeave={(e) => {
-              (e.currentTarget as HTMLElement).style.color = "var(--text-muted)";
+              (e.currentTarget as HTMLElement).style.color =
+                "var(--text-muted)";
             }}
             aria-label="Close settings"
           >
@@ -190,7 +195,7 @@ const SettingsPanel: React.FC = () => {
 
           <OptionRow
             label="Billing Mode"
-            description="How you pay for Claude. Affects usage display."
+            description="Controls whether costs are shown in the status bar. Subscription users can hide dollar amounts."
           >
             <Select<BillingMode>
               value={billingMode}
@@ -202,23 +207,6 @@ const SettingsPanel: React.FC = () => {
               onChange={setBillingMode}
             />
           </OptionRow>
-
-          {(billingMode === "subscription" || billingMode === "auto") && (
-            <OptionRow
-              label="Plan Tier"
-              description="Your Claude subscription tier. Affects message limit."
-            >
-              <Select<PlanTier>
-                value={planTier}
-                options={[
-                  { value: "auto", label: "Auto-detect" },
-                  { value: "pro", label: "Pro (100/day)" },
-                  { value: "max", label: "Max (500/day)" },
-                ]}
-                onChange={setPlanTier}
-              />
-            </OptionRow>
-          )}
 
           <OptionRow
             label="Terminal Font Size"
@@ -236,13 +224,63 @@ const SettingsPanel: React.FC = () => {
               onChange={(v) => setFontSize(Number(v))}
             />
           </OptionRow>
+
+          <OptionRow
+            label="Reset Onboarding"
+            description="Show the setup wizard again on next launch."
+          >
+            <button
+              type="button"
+              onClick={() => {
+                localStorage.removeItem(ONBOARDING_STORAGE_KEY);
+                setOnboardingReset(true);
+              }}
+              disabled={onboardingReset}
+              className="flex items-center gap-1.5 rounded px-2 py-1 text-xs transition-colors"
+              style={{
+                fontFamily: "'Geist Mono', monospace",
+                fontSize: 11,
+                backgroundColor: onboardingReset
+                  ? "var(--bg-surface)"
+                  : "var(--bg-surface)",
+                border: "1px solid var(--border)",
+                color: onboardingReset
+                  ? "var(--text-dim)"
+                  : "var(--text-primary)",
+                cursor: onboardingReset ? "default" : "pointer",
+              }}
+            >
+              <RotateCcw size={10} />
+              {onboardingReset ? "Will show on restart" : "Reset"}
+            </button>
+          </OptionRow>
         </div>
 
         {/* Footer */}
         <div
-          className="shrink-0 flex items-center justify-end px-4 py-2"
+          className="shrink-0 flex items-center justify-between px-4 py-2"
           style={{ borderTop: "1px solid var(--border)" }}
         >
+          <a
+            href="https://github.com/AadityaMishra1/Gilfoyle"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1 text-[10px] transition-colors"
+            style={{
+              fontFamily: "'Geist Mono', monospace",
+              color: "var(--text-dim)",
+            }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLElement).style.color =
+                "var(--text-muted)";
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLElement).style.color = "var(--text-dim)";
+            }}
+          >
+            <ExternalLink size={9} />
+            GitHub
+          </a>
           <span
             className="text-[10px]"
             style={{

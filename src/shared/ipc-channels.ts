@@ -4,6 +4,7 @@ export const IPC_CHANNELS = {
   SESSION_SEND_INPUT: "session:send-input",
   SESSION_RESIZE: "session:resize",
   SESSION_KILL: "session:kill",
+  SESSION_GET_CHILD_PROCESSES: "session:get-child-processes",
   SESSION_LIST: "session:list",
   PTY_DATA: "pty:data",
   PTY_EXIT: "pty:exit",
@@ -56,6 +57,20 @@ export const IPC_CHANNELS = {
   PLUGIN_INSTALL: "plugins:install",
   // Get recent sessions for a SPECIFIC project path (lightweight, no full scan)
   GET_PROJECT_SESSIONS: "sessions:get-project",
+  // Get Claude Code CLI version string
+  GET_CLAUDE_VERSION: "claude:get-version",
+  // File management operations
+  CREATE_FILE: "files:create-file",
+  CREATE_DIR: "files:create-dir",
+  RENAME_FILE: "files:rename",
+  TRASH_FILE: "files:trash",
+  FILE_EXISTS: "files:exists",
+  REVEAL_IN_FINDER: "files:reveal",
+  COPY_FILES_INTO: "files:copy-into",
+  // PTY scrollback replay (for restoring terminal after project switch)
+  GET_PTY_SCROLLBACK: "pty:get-scrollback",
+  // Get buffered agent stream events (for restoring agent list after project switch)
+  GET_STREAM_EVENTS: "stream:get-events",
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];
@@ -144,6 +159,10 @@ export interface IpcInvokeMap {
     result: void,
   ];
   [IPC_CHANNELS.SESSION_KILL]: [sessionId: string, result: void];
+  [IPC_CHANNELS.SESSION_GET_CHILD_PROCESSES]: [
+    sessionId: string,
+    result: string[],
+  ];
   [IPC_CHANNELS.SESSION_LIST]: [result: SessionListEntry[]];
   // NodeJS.Platform is only available when @types/node is in scope (main/preload).
   // For the renderer we use a plain string union that is equivalent.

@@ -1,16 +1,10 @@
 /**
  * ProjectFiles — Info Tabs "Files" tab content.
  *
- * Shows the project file tree for the current session CWD. Files Claude has
- * touched are highlighted with a peach/amber indicator. Clicking a file opens
- * a read-only code viewer pane below. An "Open in VS Code" button launches the
- * file in the user's editor via the preload bridge.
- *
- * Layout (top → bottom):
- *   Header: CWD + touched file count badge + VS Code button
- *   File tree (TreeView, ~60% of body)
- *   Divider (draggable)
- *   Code viewer (read-only, ~40% of body)
+ * Shows the project file tree for the current session CWD with full file
+ * management: create files/folders, rename, delete, copy path, reveal in
+ * Finder. Files Claude has touched are highlighted with a peach/amber
+ * indicator. Clicking a file opens a read-only code viewer pane below.
  */
 
 import React, {
@@ -23,13 +17,15 @@ import React, {
 import {
   FolderTree,
   Eye,
-  Code2,
   ExternalLink,
   FileCode,
   File as FileIcon,
+  FilePlus,
+  FolderPlus,
 } from "lucide-react";
 import { useFileStore } from "../../stores/file-store";
-import TreeView from "../shared/TreeView";
+import type { FileEntry } from "../../stores/file-store";
+import TreeView, { ContextMenu } from "../shared/TreeView";
 
 // ─── Window API type ──────────────────────────────────────────────────────────
 
@@ -41,15 +37,19 @@ type ClaudeWindow = Window & {
     onCwdFileChanged?: (
       cb: (payload: { event: string; filePath: string }) => void,
     ) => () => void;
+    createFile?: (filePath: string) => Promise<{ ok: boolean; error?: string }>;
+    createDir?: (dirPath: string) => Promise<{ ok: boolean; error?: string }>;
+    renameFile?: (
+      oldPath: string,
+      newPath: string,
+    ) => Promise<{ ok: boolean; error?: string }>;
+    trashFile?: (filePath: string) => Promise<{ ok: boolean; error?: string }>;
+    revealInFinder?: (filePath: string) => Promise<void>;
   };
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-/**
- * Return a syntax-highlight language name from a file extension, used for the
- * code viewer label only (no external highlight library required).
- */
 function langFromPath(path: string): string {
   const ext = path.slice(path.lastIndexOf(".")).toLowerCase();
   const MAP: Record<string, string> = {
@@ -134,6 +134,8 @@ interface HeaderProps {
   touchedCount: number;
   selectedFile: string | null;
   onOpenInEditor: () => void;
+  onNewFile: () => void;
+  onNewFolder: () => void;
 }
 
 const Header: React.FC<HeaderProps> = ({
@@ -141,6 +143,8 @@ const Header: React.FC<HeaderProps> = ({
   touchedCount,
   selectedFile,
   onOpenInEditor,
+  onNewFile,
+  onNewFolder,
 }) => (
   <div className="flex items-center gap-2 px-3 py-1.5 border-b border-stone-800 shrink-0 min-w-0">
     <FolderTree size={12} className="text-[#e8a872] shrink-0" />
@@ -172,6 +176,28 @@ const Header: React.FC<HeaderProps> = ({
         <Eye size={9} />
         {touchedCount}
       </span>
+    )}
+
+    {/* New File / New Folder toolbar buttons */}
+    {cwd !== null && (
+      <>
+        <button
+          type="button"
+          onClick={onNewFile}
+          className="shrink-0 p-0.5 rounded text-stone-500 hover:text-stone-300 hover:bg-stone-700/50 transition-colors cursor-pointer"
+          title="New File"
+        >
+          <FilePlus size={12} />
+        </button>
+        <button
+          type="button"
+          onClick={onNewFolder}
+          className="shrink-0 p-0.5 rounded text-stone-500 hover:text-stone-300 hover:bg-stone-700/50 transition-colors cursor-pointer"
+          title="New Folder"
+        >
+          <FolderPlus size={12} />
+        </button>
+      </>
     )}
 
     {selectedFile !== null && (
@@ -222,7 +248,6 @@ const CodeViewer: React.FC<CodeViewerProps> = ({
 
   return (
     <div className="flex flex-col h-full min-h-0">
-      {/* File label bar */}
       <div className="flex items-center gap-2 px-3 py-1 border-b border-stone-800 shrink-0 bg-stone-900/40">
         <FileCode size={11} className="text-stone-600 shrink-0" />
         <span
@@ -240,7 +265,6 @@ const CodeViewer: React.FC<CodeViewerProps> = ({
         </span>
       </div>
 
-      {/* Content area */}
       <div
         className="flex-1 overflow-y-auto overflow-x-auto min-h-0"
         tabIndex={0}
@@ -284,33 +308,50 @@ const ProjectFiles: React.FC = () => {
   const selectedFile = useFileStore((s) => s.selectedFile);
   const touchedFiles = useFileStore((s) => s.touchedFiles);
   const cwd = useFileStore((s) => s.cwd);
+  const inlineEdit = useFileStore((s) => s.inlineEdit);
 
   const toggleExpanded = useFileStore((s) => s.toggleExpanded);
   const selectFile = useFileStore((s) => s.selectFile);
   const addTouchedFile = useFileStore((s) => s.addTouchedFile);
+  const insertFileEntry = useFileStore((s) => s.insertFileEntry);
+  const removeFileEntry = useFileStore((s) => s.removeFileEntry);
+  const startInlineEdit = useFileStore((s) => s.startInlineEdit);
+  const cancelInlineEdit = useFileStore((s) => s.cancelInlineEdit);
+  const renameFileEntry = useFileStore((s) => s.renameFileEntry);
 
   const [topPct, setTopPct] = useState(60);
   const [fileContent, setFileContent] = useState<string | null>(null);
   const [contentLoading, setContentLoading] = useState(false);
+  const [ctxMenu, setCtxMenu] = useState<{
+    x: number;
+    y: number;
+    entry: FileEntry;
+    siblings: FileEntry[];
+  } | null>(null);
 
   const bodyRef = useRef<HTMLDivElement>(null);
+  const win = window as ClaudeWindow;
 
   // Subscribe to CWD file-change events from the main process.
   useEffect(() => {
-    const win = window as ClaudeWindow;
     if (!cwd) return;
 
-    win.claude?.watchCwd?.(cwd).catch(() => {
-      /* best-effort */
-    });
+    win.claude?.watchCwd?.(cwd).catch(() => {});
 
     const unsub = win.claude?.onCwdFileChanged?.((payload) => {
-      if (payload.event === "change" || payload.event === "add") {
+      if (payload.event === "add") {
+        insertFileEntry(payload.filePath, false);
         addTouchedFile(payload.filePath);
+      } else if (payload.event === "addDir") {
+        insertFileEntry(payload.filePath, true);
+      } else if (payload.event === "change") {
+        addTouchedFile(payload.filePath);
+      } else if (payload.event === "unlink" || payload.event === "unlinkDir") {
+        removeFileEntry(payload.filePath);
       }
     });
     return () => unsub?.();
-  }, [cwd, addTouchedFile]);
+  }, [cwd, addTouchedFile, insertFileEntry, removeFileEntry]);
 
   // Load file content when selection changes.
   useEffect(() => {
@@ -318,17 +359,12 @@ const ProjectFiles: React.FC = () => {
       setFileContent(null);
       return;
     }
-
-    const win = window as ClaudeWindow;
     if (!win.claude?.readFile) {
       setFileContent(null);
       return;
     }
-
     setContentLoading(true);
-
     const absolutePath = cwd ? `${cwd}/${selectedFile}` : selectedFile;
-
     win.claude
       .readFile(absolutePath)
       .then((text) => setFileContent(text))
@@ -336,24 +372,146 @@ const ProjectFiles: React.FC = () => {
       .finally(() => setContentLoading(false));
   }, [selectedFile, cwd]);
 
-  const handleSelectFile = useCallback(
-    (path: string) => {
-      selectFile(path);
+  // ── Keyboard shortcuts for the tree ───────────────────────────────────────
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      // F2 = Rename
+      if (e.key === "F2" && selectedFile) {
+        e.preventDefault();
+        startInlineEdit({ mode: "rename", targetPath: selectedFile });
+      }
+      // Cmd+Backspace = Delete
+      if ((e.metaKey || e.ctrlKey) && e.key === "Backspace" && selectedFile) {
+        e.preventDefault();
+        handleDelete(selectedFile);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [selectedFile]);
+
+  // ── Determine the parent directory for new file/folder ────────────────────
+  const getCreateTarget = useCallback((): string => {
+    if (!selectedFile) return "";
+    // If the selected item is a directory and is expanded, create inside it.
+    const findEntry = (
+      entries: FileEntry[],
+      path: string,
+    ): FileEntry | null => {
+      for (const e of entries) {
+        if (e.path === path) return e;
+        if (e.children) {
+          const found = findEntry(e.children, path);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+    const entry = findEntry(fileTree, selectedFile);
+    if (entry?.isDirectory && expandedPaths.has(entry.path)) {
+      return entry.path;
+    }
+    // Otherwise create in the parent directory.
+    const lastSlash = selectedFile.lastIndexOf("/");
+    return lastSlash > 0 ? selectedFile.substring(0, lastSlash) : "";
+  }, [selectedFile, fileTree, expandedPaths]);
+
+  // ── New File / New Folder handlers ────────────────────────────────────────
+  const handleNewFile = useCallback(() => {
+    const target = getCreateTarget();
+    startInlineEdit({ mode: "create-file", targetPath: target });
+  }, [getCreateTarget, startInlineEdit]);
+
+  const handleNewFolder = useCallback(() => {
+    const target = getCreateTarget();
+    startInlineEdit({ mode: "create-folder", targetPath: target });
+  }, [getCreateTarget, startInlineEdit]);
+
+  // ── Inline edit confirm ───────────────────────────────────────────────────
+  const handleInlineConfirm = useCallback(
+    async (name: string) => {
+      if (!cwd || !inlineEdit) return;
+
+      if (inlineEdit.mode === "rename") {
+        // Rename: compute old and new absolute paths.
+        const oldRelative = inlineEdit.targetPath;
+        const lastSlash = oldRelative.lastIndexOf("/");
+        const parentRelative =
+          lastSlash > 0 ? oldRelative.substring(0, lastSlash) : "";
+        const newRelative = parentRelative ? `${parentRelative}/${name}` : name;
+        const oldAbsolute = `${cwd}/${oldRelative}`;
+        const newAbsolute = `${cwd}/${newRelative}`;
+
+        const result = await win.claude?.renameFile?.(oldAbsolute, newAbsolute);
+        if (result?.ok) {
+          renameFileEntry(oldRelative, newRelative);
+        }
+      } else {
+        // Create file or folder.
+        // Support nested paths: typing "src/components/Button.tsx" creates all dirs.
+        const parentRelative = inlineEdit.targetPath;
+        const newRelative = parentRelative ? `${parentRelative}/${name}` : name;
+        const absolute = `${cwd}/${newRelative}`;
+
+        if (inlineEdit.mode === "create-folder") {
+          await win.claude?.createDir?.(absolute);
+          // The chokidar watcher will pick up the new directory.
+        } else {
+          await win.claude?.createFile?.(absolute);
+          // The chokidar watcher will pick up the new file.
+          // Auto-select it.
+          selectFile(newRelative);
+        }
+      }
+      cancelInlineEdit();
     },
-    [selectFile],
+    [
+      cwd,
+      inlineEdit,
+      win.claude,
+      renameFileEntry,
+      selectFile,
+      cancelInlineEdit,
+    ],
   );
 
-  const handleDividerDrag = useCallback((pct: number) => {
-    setTopPct(pct);
-  }, []);
+  // ── Delete handler ────────────────────────────────────────────────────────
+  const handleDelete = useCallback(
+    async (filePath: string) => {
+      if (!cwd) return;
+      const name = filePath.split("/").pop() ?? filePath;
+      const confirmed = window.confirm(`Move "${name}" to Trash?`);
+      if (!confirmed) return;
 
+      const absolute = `${cwd}/${filePath}`;
+      const result = await win.claude?.trashFile?.(absolute);
+      if (result?.ok) {
+        // Watcher will handle removal, but also clear selection.
+        if (selectedFile === filePath) {
+          selectFile(null);
+        }
+      }
+    },
+    [cwd, selectedFile, selectFile, win.claude],
+  );
+
+  // ── Context menu handler ──────────────────────────────────────────────────
+  const handleContextMenu = useCallback(
+    (e: React.MouseEvent, entry: FileEntry, siblings: FileEntry[]) => {
+      setCtxMenu({ x: e.clientX, y: e.clientY, entry, siblings });
+    },
+    [],
+  );
+
+  const handleSelectFile = useCallback(
+    (path: string) => selectFile(path),
+    [selectFile],
+  );
+  const handleDividerDrag = useCallback((pct: number) => setTopPct(pct), []);
   const handleOpenInEditor = useCallback(() => {
     if (!selectedFile) return;
-    const win = window as ClaudeWindow;
     const absolute = cwd ? `${cwd}/${selectedFile}` : selectedFile;
-    win.claude?.openInEditor?.(absolute).catch(() => {
-      /* ignore */
-    });
+    win.claude?.openInEditor?.(absolute).catch(() => {});
   }, [selectedFile, cwd]);
 
   const touchedCount = useMemo(() => touchedFiles.size, [touchedFiles]);
@@ -361,13 +519,15 @@ const ProjectFiles: React.FC = () => {
   return (
     <div
       className="flex flex-col h-full w-full overflow-hidden"
-      style={{ backgroundColor: "#0e0c0b" }}
+      style={{ backgroundColor: "var(--bg-primary)" }}
     >
       <Header
         cwd={cwd}
         touchedCount={touchedCount}
         selectedFile={selectedFile}
         onOpenInEditor={handleOpenInEditor}
+        onNewFile={handleNewFile}
+        onNewFolder={handleNewFolder}
       />
 
       <div
@@ -384,8 +544,12 @@ const ProjectFiles: React.FC = () => {
             expandedPaths={expandedPaths}
             selectedFile={selectedFile}
             touchedFiles={touchedFiles}
+            inlineEdit={inlineEdit}
             onToggleExpand={toggleExpanded}
             onSelectFile={handleSelectFile}
+            onContextMenu={handleContextMenu}
+            onInlineConfirm={handleInlineConfirm}
+            onInlineCancel={cancelInlineEdit}
           />
         </div>
 
@@ -407,6 +571,62 @@ const ProjectFiles: React.FC = () => {
           />
         </div>
       </div>
+
+      {/* Context menu portal */}
+      {ctxMenu && (
+        <ContextMenu
+          x={ctxMenu.x}
+          y={ctxMenu.y}
+          isDirectory={ctxMenu.entry.isDirectory}
+          onNewFile={() => {
+            const target = ctxMenu.entry.isDirectory
+              ? ctxMenu.entry.path
+              : ctxMenu.entry.path.substring(
+                  0,
+                  ctxMenu.entry.path.lastIndexOf("/"),
+                ) || "";
+            if (ctxMenu.entry.isDirectory) {
+              toggleExpanded(ctxMenu.entry.path);
+            }
+            startInlineEdit({ mode: "create-file", targetPath: target });
+          }}
+          onNewFolder={() => {
+            const target = ctxMenu.entry.isDirectory
+              ? ctxMenu.entry.path
+              : ctxMenu.entry.path.substring(
+                  0,
+                  ctxMenu.entry.path.lastIndexOf("/"),
+                ) || "";
+            if (ctxMenu.entry.isDirectory) {
+              toggleExpanded(ctxMenu.entry.path);
+            }
+            startInlineEdit({ mode: "create-folder", targetPath: target });
+          }}
+          onRename={() => {
+            startInlineEdit({
+              mode: "rename",
+              targetPath: ctxMenu.entry.path,
+            });
+          }}
+          onDelete={() => handleDelete(ctxMenu.entry.path)}
+          onCopyPath={() => {
+            const abs = cwd
+              ? `${cwd}/${ctxMenu.entry.path}`
+              : ctxMenu.entry.path;
+            navigator.clipboard.writeText(abs).catch(() => {});
+          }}
+          onCopyRelativePath={() => {
+            navigator.clipboard.writeText(ctxMenu.entry.path).catch(() => {});
+          }}
+          onRevealInFinder={() => {
+            const abs = cwd
+              ? `${cwd}/${ctxMenu.entry.path}`
+              : ctxMenu.entry.path;
+            win.claude?.revealInFinder?.(abs).catch(() => {});
+          }}
+          onClose={() => setCtxMenu(null)}
+        />
+      )}
     </div>
   );
 };

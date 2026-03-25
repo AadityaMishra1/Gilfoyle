@@ -88,6 +88,7 @@ export function GitPanel({ projectPath }: GitPanelProps): React.ReactElement {
     }
   }, [projectPath]);
 
+  // Load once on mount.
   useEffect(() => {
     setGitStatus(null);
     setNotARepo(false);
@@ -96,7 +97,7 @@ export function GitPanel({ projectPath }: GitPanelProps): React.ReactElement {
     void loadGitStatus();
   }, [loadGitStatus]);
 
-  // Refresh on file changes
+  // Refresh on file changes.
   useEffect(() => {
     const unsub = window.claude.onCwdFileChanged(() => {
       void loadGitStatus();
@@ -203,7 +204,7 @@ export function GitPanel({ projectPath }: GitPanelProps): React.ReactElement {
                 <button
                   type="button"
                   onClick={() => void handleFileClick(change.file)}
-                  className="w-full flex items-center gap-2 px-3 h-8 hover:bg-stone-800/50 text-left transition-colors"
+                  className="w-full flex items-center gap-2 px-3 h-8 min-w-0 hover:bg-stone-800/50 text-left transition-colors"
                 >
                   {expandedFile === change.file ? (
                     <ChevronDown
@@ -231,7 +232,7 @@ export function GitPanel({ projectPath }: GitPanelProps): React.ReactElement {
 
                   {/* Filename */}
                   <span
-                    className="flex-1 text-stone-300 truncate"
+                    className="flex-1 min-w-0 text-stone-300 truncate"
                     style={{ fontSize: 11 }}
                     title={change.file}
                   >
@@ -297,7 +298,7 @@ export function GitPanel({ projectPath }: GitPanelProps): React.ReactElement {
             {gitStatus.commits.map((commit, i) => (
               <div
                 key={i}
-                className="flex items-center gap-2 px-3 h-8 hover:bg-stone-800/50"
+                className="flex items-center gap-2 px-3 h-8 min-w-0 hover:bg-stone-800/50"
               >
                 <GitCommit size={11} className="text-stone-600 shrink-0" />
                 <span
@@ -307,7 +308,7 @@ export function GitPanel({ projectPath }: GitPanelProps): React.ReactElement {
                   {commit.hash}
                 </span>
                 <span
-                  className="flex-1 text-stone-300 truncate"
+                  className="flex-1 min-w-0 text-stone-300 truncate"
                   style={{ fontSize: 11 }}
                   title={commit.message}
                 >

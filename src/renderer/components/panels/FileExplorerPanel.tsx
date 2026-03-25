@@ -1,22 +1,20 @@
 /**
  * FileExplorerPanel — Combines the file tree and diff viewer for the "Files"
- * mosaic panel.
- *
- * Layout (top-to-bottom):
- *   - Panel header   — CWD path + icon strip
- *   - File tree      — scrollable, ~60% of remaining height
- *   - Divider        — draggable handle
- *   - Diff viewer    — scrollable, ~40% of remaining height
- *
- * When a touched file is selected the diff viewer is populated automatically
- * via the file-store.
+ * mosaic panel with full file management: create, rename, delete, context menu.
  */
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { FolderTree, Eye, GitCompareArrows } from "lucide-react";
+import {
+  FolderTree,
+  Eye,
+  GitCompareArrows,
+  FilePlus,
+  FolderPlus,
+} from "lucide-react";
 import { useFileStore } from "../../stores/file-store";
+import type { FileEntry } from "../../stores/file-store";
 import { useSessionStore } from "../../stores/session-store";
-import TreeView from "../shared/TreeView";
+import TreeView, { ContextMenu } from "../shared/TreeView";
 import DiffViewer from "../shared/DiffViewer";
 
 // ─── Window API type ──────────────────────────────────────────────────────────
@@ -27,13 +25,20 @@ type ClaudeWindow = Window & {
     onCwdFileChanged?: (
       cb: (payload: { event: string; filePath: string }) => void,
     ) => () => void;
+    createFile?: (filePath: string) => Promise<{ ok: boolean; error?: string }>;
+    createDir?: (dirPath: string) => Promise<{ ok: boolean; error?: string }>;
+    renameFile?: (
+      oldPath: string,
+      newPath: string,
+    ) => Promise<{ ok: boolean; error?: string }>;
+    trashFile?: (filePath: string) => Promise<{ ok: boolean; error?: string }>;
+    revealInFinder?: (filePath: string) => Promise<void>;
   };
 };
 
 // ─── Draggable divider ────────────────────────────────────────────────────────
 
 interface DividerProps {
-  /** Called continuously while the user drags; receives the new top-pane % */
   onDrag: (topPercent: number) => void;
   containerRef: React.RefObject<HTMLDivElement>;
 }
@@ -79,7 +84,6 @@ const Divider: React.FC<DividerProps> = ({ onDrag, containerRef }) => {
       aria-orientation="horizontal"
       aria-label="Resize file tree and diff viewer"
     >
-      {/* Visual grab indicator */}
       <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 flex justify-center pointer-events-none">
         <div className="w-8 h-0.5 rounded-full bg-zinc-700 group-hover:bg-amber-500/60 transition-colors duration-100" />
       </div>
@@ -92,9 +96,16 @@ const Divider: React.FC<DividerProps> = ({ onDrag, containerRef }) => {
 interface HeaderProps {
   cwd: string | null;
   touchedCount: number;
+  onNewFile: () => void;
+  onNewFolder: () => void;
 }
 
-const Header: React.FC<HeaderProps> = ({ cwd, touchedCount }) => (
+const Header: React.FC<HeaderProps> = ({
+  cwd,
+  touchedCount,
+  onNewFile,
+  onNewFolder,
+}) => (
   <div className="flex items-center gap-2 px-3 py-1.5 border-b border-zinc-800 shrink-0 min-w-0">
     <FolderTree size={13} className="text-amber-500 shrink-0" />
 
@@ -107,7 +118,6 @@ const Header: React.FC<HeaderProps> = ({ cwd, touchedCount }) => (
         >
           {cwd}
         </span>
-        {/* Watching indicator */}
         <span
           className="shrink-0 text-zinc-600 text-xs"
           style={{ fontFamily: "'Geist Mono', monospace", fontSize: 9 }}
@@ -139,6 +149,28 @@ const Header: React.FC<HeaderProps> = ({ cwd, touchedCount }) => (
         </span>
       </div>
     )}
+
+    {/* New File / New Folder toolbar buttons */}
+    {cwd !== null && (
+      <>
+        <button
+          type="button"
+          onClick={onNewFile}
+          className="shrink-0 p-0.5 rounded text-zinc-500 hover:text-zinc-300 hover:bg-zinc-700/50 transition-colors cursor-pointer"
+          title="New File"
+        >
+          <FilePlus size={12} />
+        </button>
+        <button
+          type="button"
+          onClick={onNewFolder}
+          className="shrink-0 p-0.5 rounded text-zinc-500 hover:text-zinc-300 hover:bg-zinc-700/50 transition-colors cursor-pointer"
+          title="New Folder"
+        >
+          <FolderPlus size={12} />
+        </button>
+      </>
+    )}
   </div>
 );
 
@@ -165,55 +197,185 @@ const FileExplorerPanel: React.FC = () => {
   const currentDiff = useFileStore((s) => s.currentDiff);
   const touchedFiles = useFileStore((s) => s.touchedFiles);
   const cwd = useFileStore((s) => s.cwd);
+  const inlineEdit = useFileStore((s) => s.inlineEdit);
 
   const toggleExpanded = useFileStore((s) => s.toggleExpanded);
   const selectFile = useFileStore((s) => s.selectFile);
   const setCurrentDiff = useFileStore((s) => s.setCurrentDiff);
   const setCwd = useFileStore((s) => s.setCwd);
   const addTouchedFile = useFileStore((s) => s.addTouchedFile);
+  const insertFileEntry = useFileStore((s) => s.insertFileEntry);
+  const removeFileEntry = useFileStore((s) => s.removeFileEntry);
+  const startInlineEdit = useFileStore((s) => s.startInlineEdit);
+  const cancelInlineEdit = useFileStore((s) => s.cancelInlineEdit);
+  const renameFileEntry = useFileStore((s) => s.renameFileEntry);
 
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const sessions = useSessionStore((s) => s.sessions);
 
-  // On mount (and when the active session changes), seed the CWD from the
-  // session metadata and start the file watcher via the preload bridge.
-  useEffect(() => {
-    const win = window as ClaudeWindow;
+  const [topPct, setTopPct] = useState(60);
+  const [ctxMenu, setCtxMenu] = useState<{
+    x: number;
+    y: number;
+    entry: FileEntry;
+    siblings: FileEntry[];
+  } | null>(null);
 
-    // Resolve the working directory from the active session's metadata.
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const win = window as ClaudeWindow;
+
+  // Seed CWD and start file watcher.
+  useEffect(() => {
     const activeSession = sessions.find((s) => s.sessionId === activeSessionId);
     const sessionCwd =
       (activeSession as { cwd?: string } | undefined)?.cwd ?? null;
 
     if (sessionCwd) {
       setCwd(sessionCwd);
-      // Ask the main process to start watching for file changes.
-      win.claude?.watchCwd?.(sessionCwd).catch(() => {
-        // watchCwd is best-effort — ignore errors silently.
-      });
+      win.claude?.watchCwd?.(sessionCwd).catch(() => {});
     }
 
-    // Subscribe to CWD file-change events pushed by the main process.
     const unsub = win.claude?.onCwdFileChanged?.((payload) => {
-      // Any write or create event means Claude touched this file.
-      if (payload.event === "change" || payload.event === "add") {
+      if (payload.event === "add") {
+        insertFileEntry(payload.filePath, false);
         addTouchedFile(payload.filePath);
+      } else if (payload.event === "addDir") {
+        insertFileEntry(payload.filePath, true);
+      } else if (payload.event === "change") {
+        addTouchedFile(payload.filePath);
+      } else if (payload.event === "unlink" || payload.event === "unlinkDir") {
+        removeFileEntry(payload.filePath);
       }
     });
 
     return () => unsub?.();
-  }, [activeSessionId, sessions, setCwd, addTouchedFile]);
+  }, [
+    activeSessionId,
+    sessions,
+    setCwd,
+    addTouchedFile,
+    insertFileEntry,
+    removeFileEntry,
+  ]);
 
-  // Split position as a percentage of the body height (tree pane takes topPct%).
-  const [topPct, setTopPct] = useState(60);
+  // ── Keyboard shortcuts ──────────────────────────────────────────────────
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "F2" && selectedFile) {
+        e.preventDefault();
+        startInlineEdit({ mode: "rename", targetPath: selectedFile });
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === "Backspace" && selectedFile) {
+        e.preventDefault();
+        handleDelete(selectedFile);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [selectedFile]);
 
-  const bodyRef = useRef<HTMLDivElement>(null);
+  // ── Create target: determine where new files/folders go ─────────────────
+  const getCreateTarget = useCallback((): string => {
+    if (!selectedFile) return "";
+    const findEntry = (
+      entries: FileEntry[],
+      path: string,
+    ): FileEntry | null => {
+      for (const e of entries) {
+        if (e.path === path) return e;
+        if (e.children) {
+          const found = findEntry(e.children, path);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+    const entry = findEntry(fileTree, selectedFile);
+    if (entry?.isDirectory && expandedPaths.has(entry.path)) {
+      return entry.path;
+    }
+    const lastSlash = selectedFile.lastIndexOf("/");
+    return lastSlash > 0 ? selectedFile.substring(0, lastSlash) : "";
+  }, [selectedFile, fileTree, expandedPaths]);
+
+  const handleNewFile = useCallback(() => {
+    startInlineEdit({ mode: "create-file", targetPath: getCreateTarget() });
+  }, [getCreateTarget, startInlineEdit]);
+
+  const handleNewFolder = useCallback(() => {
+    startInlineEdit({ mode: "create-folder", targetPath: getCreateTarget() });
+  }, [getCreateTarget, startInlineEdit]);
+
+  // ── Inline edit confirm ─────────────────────────────────────────────────
+  const handleInlineConfirm = useCallback(
+    async (name: string) => {
+      if (!cwd || !inlineEdit) return;
+
+      if (inlineEdit.mode === "rename") {
+        const oldRelative = inlineEdit.targetPath;
+        const lastSlash = oldRelative.lastIndexOf("/");
+        const parentRelative =
+          lastSlash > 0 ? oldRelative.substring(0, lastSlash) : "";
+        const newRelative = parentRelative ? `${parentRelative}/${name}` : name;
+        const oldAbsolute = `${cwd}/${oldRelative}`;
+        const newAbsolute = `${cwd}/${newRelative}`;
+
+        const result = await win.claude?.renameFile?.(oldAbsolute, newAbsolute);
+        if (result?.ok) {
+          renameFileEntry(oldRelative, newRelative);
+        }
+      } else {
+        const parentRelative = inlineEdit.targetPath;
+        const newRelative = parentRelative ? `${parentRelative}/${name}` : name;
+        const absolute = `${cwd}/${newRelative}`;
+
+        if (inlineEdit.mode === "create-folder") {
+          await win.claude?.createDir?.(absolute);
+        } else {
+          await win.claude?.createFile?.(absolute);
+          selectFile(newRelative);
+        }
+      }
+      cancelInlineEdit();
+    },
+    [
+      cwd,
+      inlineEdit,
+      win.claude,
+      renameFileEntry,
+      selectFile,
+      cancelInlineEdit,
+    ],
+  );
+
+  // ── Delete handler ──────────────────────────────────────────────────────
+  const handleDelete = useCallback(
+    async (filePath: string) => {
+      if (!cwd) return;
+      const name = filePath.split("/").pop() ?? filePath;
+      const confirmed = window.confirm(`Move "${name}" to Trash?`);
+      if (!confirmed) return;
+
+      const absolute = `${cwd}/${filePath}`;
+      const result = await win.claude?.trashFile?.(absolute);
+      if (result?.ok && selectedFile === filePath) {
+        selectFile(null);
+      }
+    },
+    [cwd, selectedFile, selectFile, win.claude],
+  );
+
+  // ── Context menu ────────────────────────────────────────────────────────
+  const handleContextMenu = useCallback(
+    (e: React.MouseEvent, entry: FileEntry, _siblings: FileEntry[]) => {
+      setCtxMenu({ x: e.clientX, y: e.clientY, entry, siblings: _siblings });
+    },
+    [],
+  );
 
   const handleSelectFile = useCallback(
     (path: string) => {
       selectFile(path);
-      // Clear the diff when switching to a non-touched file so the viewer
-      // shows the empty state rather than stale data from a previous selection.
       if (!touchedFiles.has(path)) {
         setCurrentDiff(null);
       }
@@ -221,19 +383,20 @@ const FileExplorerPanel: React.FC = () => {
     [selectFile, setCurrentDiff, touchedFiles],
   );
 
-  const handleDividerDrag = useCallback((pct: number) => {
-    setTopPct(pct);
-  }, []);
+  const handleDividerDrag = useCallback((pct: number) => setTopPct(pct), []);
 
   return (
     <div
       className="flex flex-col h-full w-full overflow-hidden"
       style={{ backgroundColor: "#09090b" }}
     >
-      {/* Panel header */}
-      <Header cwd={cwd} touchedCount={touchedFiles.size} />
+      <Header
+        cwd={cwd}
+        touchedCount={touchedFiles.size}
+        onNewFile={handleNewFile}
+        onNewFolder={handleNewFolder}
+      />
 
-      {/* Resizable body */}
       <div
         ref={bodyRef}
         className="flex-1 min-h-0 flex flex-col overflow-hidden"
@@ -248,8 +411,12 @@ const FileExplorerPanel: React.FC = () => {
             expandedPaths={expandedPaths}
             selectedFile={selectedFile}
             touchedFiles={touchedFiles}
+            inlineEdit={inlineEdit}
             onToggleExpand={toggleExpanded}
             onSelectFile={handleSelectFile}
+            onContextMenu={handleContextMenu}
+            onInlineConfirm={handleInlineConfirm}
+            onInlineCancel={cancelInlineEdit}
           />
         </div>
 
@@ -270,6 +437,58 @@ const FileExplorerPanel: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Context menu */}
+      {ctxMenu && (
+        <ContextMenu
+          x={ctxMenu.x}
+          y={ctxMenu.y}
+          isDirectory={ctxMenu.entry.isDirectory}
+          onNewFile={() => {
+            const target = ctxMenu.entry.isDirectory
+              ? ctxMenu.entry.path
+              : ctxMenu.entry.path.substring(
+                  0,
+                  ctxMenu.entry.path.lastIndexOf("/"),
+                ) || "";
+            if (ctxMenu.entry.isDirectory) toggleExpanded(ctxMenu.entry.path);
+            startInlineEdit({ mode: "create-file", targetPath: target });
+          }}
+          onNewFolder={() => {
+            const target = ctxMenu.entry.isDirectory
+              ? ctxMenu.entry.path
+              : ctxMenu.entry.path.substring(
+                  0,
+                  ctxMenu.entry.path.lastIndexOf("/"),
+                ) || "";
+            if (ctxMenu.entry.isDirectory) toggleExpanded(ctxMenu.entry.path);
+            startInlineEdit({ mode: "create-folder", targetPath: target });
+          }}
+          onRename={() =>
+            startInlineEdit({
+              mode: "rename",
+              targetPath: ctxMenu.entry.path,
+            })
+          }
+          onDelete={() => handleDelete(ctxMenu.entry.path)}
+          onCopyPath={() => {
+            const abs = cwd
+              ? `${cwd}/${ctxMenu.entry.path}`
+              : ctxMenu.entry.path;
+            navigator.clipboard.writeText(abs).catch(() => {});
+          }}
+          onCopyRelativePath={() =>
+            navigator.clipboard.writeText(ctxMenu.entry.path).catch(() => {})
+          }
+          onRevealInFinder={() => {
+            const abs = cwd
+              ? `${cwd}/${ctxMenu.entry.path}`
+              : ctxMenu.entry.path;
+            win.claude?.revealInFinder?.(abs).catch(() => {});
+          }}
+          onClose={() => setCtxMenu(null)}
+        />
+      )}
     </div>
   );
 };

@@ -119,11 +119,22 @@ export function useTerminal(): UseTerminalReturn {
     fitAddonRef.current = fitAddon;
     searchAddonRef.current = searchAddon;
 
-    // Initial fit + focus after the DOM settles
-    requestAnimationFrame(() => {
+    // Fit immediately — the container already has dimensions since the
+    // effect runs after mount. This avoids a 1-frame delay where the
+    // terminal has 0 cols/rows and can't render PTY data properly.
+    try {
       fitAddon.fit();
-      term.focus();
-    });
+    } catch {
+      // Container may not have dimensions yet in rare cases; retry next frame
+      requestAnimationFrame(() => {
+        try {
+          fitAddon.fit();
+        } catch {
+          /* ignore */
+        }
+      });
+    }
+    term.focus();
 
     // Trigger re-render so TerminalPanel's effects can wire up PTY I/O
     setTerminal(term);

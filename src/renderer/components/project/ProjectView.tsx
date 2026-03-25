@@ -1,10 +1,4 @@
-import React, {
-  useEffect,
-  useRef,
-  useCallback,
-  useState,
-  useMemo,
-} from "react";
+import React, { useEffect, useRef, useCallback, useState } from "react";
 import TerminalPanel, { type TerminalTab } from "../panels/TerminalPanel";
 import InfoTabs from "./InfoTabs";
 import { EditorPanel } from "../editor/EditorPanel";
@@ -21,15 +15,20 @@ const EMPTY_TABS: TabEntry[] = [];
 
 interface ProjectViewProps {
   projectPath: string;
+  isActive?: boolean;
 }
 
 /**
  * Main project area.
  *
- * Tabs are stored per-project in a Zustand store, so switching between
- * projects preserves each project's terminal sessions independently.
+ * Multiple ProjectViews stay mounted simultaneously (one per booted project)
+ * so that terminal sessions survive project switches. Only the active one
+ * writes to shared global stores (file-store, activity, etc.).
  */
-const ProjectView: React.FC<ProjectViewProps> = ({ projectPath }) => {
+const ProjectView: React.FC<ProjectViewProps> = ({
+  projectPath,
+  isActive = true,
+}) => {
   const claude = useClaudeAPI();
   const { infoPanelHeight, setInfoPanelHeight, infoPanelCollapsed } =
     useLayoutStore();
@@ -47,6 +46,27 @@ const ProjectView: React.FC<ProjectViewProps> = ({ projectPath }) => {
   const [bootError, setBootError] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // ── Estimate terminal dimensions from container ───────────────────────────
+  // Uses approximate character metrics for Geist Mono at 14px / 1.4 line-height.
+  // This avoids the PTY starting at 120x30 and rendering content at the wrong size
+  // before the real fit/resize arrives from xterm.
+  const estimateTermSize = useCallback(() => {
+    const el = containerRef.current;
+    if (!el || el.clientWidth < 100 || el.clientHeight < 100) {
+      return { cols: 120, rows: 30 }; // safe default
+    }
+    const charW = 8.4; // Geist Mono ~14px
+    const charH = 14 * 1.4; // lineHeight 1.4
+    const pad = 16; // padding in terminal container
+    const tabBarH = 34;
+    const cols = Math.max(40, Math.floor((el.clientWidth - pad) / charW));
+    const rows = Math.max(
+      10,
+      Math.floor((el.clientHeight - tabBarH - pad) / charH),
+    );
+    return { cols, rows };
+  }, []);
+
   // ── Create new terminal tab ────────────────────────────────────────────────
   const createNewTab = useCallback(
     async (cwd?: string) => {
@@ -54,9 +74,12 @@ const ProjectView: React.FC<ProjectViewProps> = ({ projectPath }) => {
         // Per-project tab numbering based on current tab count
         const tabNumber =
           (useTabStore.getState().tabsByProject[projectPath]?.length ?? 0) + 1;
+        const { cols, rows } = estimateTermSize();
         const meta = await claude.createSession({
           cwd: cwd ?? projectPath,
           name: `Session ${tabNumber}`,
+          cols,
+          rows,
         });
 
         addTab(projectPath, {
@@ -71,10 +94,12 @@ const ProjectView: React.FC<ProjectViewProps> = ({ projectPath }) => {
         return null;
       }
     },
-    [claude, projectPath, addTab],
+    [claude, projectPath, addTab, estimateTermSize],
   );
 
   // ── Boot: only runs ONCE per project (skips if already booted) ──────────
+  // Strategy: check for resumable sessions FIRST (fast filesystem read),
+  // then spawn the appropriate PTY — either a fresh shell or `claude --continue`.
   useEffect(() => {
     if (!projectPath || isBooted) return;
 
@@ -86,10 +111,9 @@ const ProjectView: React.FC<ProjectViewProps> = ({ projectPath }) => {
       try {
         if (cancelled) return;
 
-        // Check if this project has a recent session to resume.
-        // Uses lightweight per-project scan (reads only this project's dir,
-        // not all 1000+ session files like scanAll does).
-        let shouldContinue = false;
+        // Step 1: Check for resumable sessions BEFORE spawning any PTY.
+        // This is a fast filesystem read (~1-5ms), not a slow network call.
+        let shouldResume = false;
         try {
           const sessions = await claude.getProjectSessions(projectPath);
 
@@ -98,25 +122,28 @@ const ProjectView: React.FC<ProjectViewProps> = ({ projectPath }) => {
             const recent = sessions[0]!;
 
             if (recent.lastActiveAt > threeDaysAgo) {
-              shouldContinue = window.confirm(
+              shouldResume = window.confirm(
                 `Resume your last Claude session?\n\nLast active: ${new Date(recent.lastActiveAt).toLocaleString()}\nModel: ${recent.model ?? "unknown"}`,
               );
             }
           }
         } catch {
-          // Scan failed — just start fresh
+          // Session scan failed — just start a fresh session
         }
 
         if (cancelled) return;
 
+        // Step 2: Spawn the PTY — either resumed or fresh.
         const tabNumber =
           (useTabStore.getState().tabsByProject[projectPath]?.length ?? 0) + 1;
+        const { cols, rows } = estimateTermSize();
+
         const meta = await claude.createSession({
           cwd: projectPath,
-          name: shouldContinue
-            ? `Resumed ${tabNumber}`
-            : `Session ${tabNumber}`,
-          continueSession: shouldContinue,
+          name: shouldResume ? `Resumed ${tabNumber}` : `Session ${tabNumber}`,
+          cols,
+          rows,
+          ...(shouldResume ? { continueSession: true } : {}),
         });
 
         if (cancelled) return;
@@ -155,21 +182,43 @@ const ProjectView: React.FC<ProjectViewProps> = ({ projectPath }) => {
   // ── Close tab ──────────────────────────────────────────────────────────────
   const closeTab = useCallback(
     (sessionId: string) => {
-      const tab = tabs.find((t) => t.sessionId === sessionId);
-
       const doClose = () => {
         removeTab(projectPath, sessionId);
         claude.killSession(sessionId).catch(() => {});
       };
 
-      if (tab?.isActive) {
-        const confirmed = window.confirm(
-          "This session is still running. Are you sure you want to close it?\n\nThe Claude process will be terminated.",
-        );
-        if (!confirmed) return;
+      const tab = tabs.find((t) => t.sessionId === sessionId);
+      if (!tab?.isActive) {
+        // PTY already exited — just remove the tab, no need to kill.
+        removeTab(projectPath, sessionId);
+        return;
       }
 
-      doClose();
+      // Check for any running child processes inside the shell.
+      // Matches real terminal behavior: confirm only when a process is running.
+      claude
+        .getChildProcesses(sessionId)
+        .then((processes) => {
+          if (processes.length === 0) {
+            // Shell is idle — close silently, no confirmation.
+            doClose();
+            return;
+          }
+
+          const isClaude = processes.some((p) => p.includes("claude"));
+          const message = isClaude
+            ? "Claude is running in this session. Close it?\n\nIn-flight requests will be cancelled."
+            : `A process is still running: ${processes.join(", ")}\n\nClose this terminal?`;
+
+          const confirmed = window.confirm(message);
+          if (!confirmed) return;
+
+          doClose();
+        })
+        .catch(() => {
+          // If the check fails, just close without asking.
+          doClose();
+        });
     },
     [claude, tabs, projectPath, removeTab],
   );
@@ -215,9 +264,14 @@ const ProjectView: React.FC<ProjectViewProps> = ({ projectPath }) => {
   // ── Load file tree when project path changes ──────────────────────────────
   const setCwd = useFileStore((s) => s.setCwd);
   const setFileTree = useFileStore((s) => s.setFileTree);
+  const insertFileEntry = useFileStore((s) => s.insertFileEntry);
+  const removeFileEntry = useFileStore((s) => s.removeFileEntry);
+  const addTouchedFile = useFileStore((s) => s.addTouchedFile);
 
+  // Only load file tree and watch for changes when THIS project is active.
+  // This prevents hidden ProjectViews from overwriting the shared file store.
   useEffect(() => {
-    if (!projectPath) return;
+    if (!projectPath || !isActive) return;
     setCwd(projectPath);
 
     const loadFiles = async () => {
@@ -244,7 +298,32 @@ const ProjectView: React.FC<ProjectViewProps> = ({ projectPath }) => {
       }
     };
     void loadFiles();
-  }, [projectPath, claude, setCwd, setFileTree]);
+  }, [projectPath, isActive, claude, setCwd, setFileTree]);
+
+  useEffect(() => {
+    if (!projectPath || !isActive) return;
+    claude.watchCwd(projectPath).catch(() => {});
+    const unsub = claude.onCwdFileChanged((payload) => {
+      if (payload.event === "add") {
+        insertFileEntry(payload.filePath, false);
+        addTouchedFile(payload.filePath);
+      } else if (payload.event === "addDir") {
+        insertFileEntry(payload.filePath, true);
+      } else if (payload.event === "change") {
+        addTouchedFile(payload.filePath);
+      } else if (payload.event === "unlink" || payload.event === "unlinkDir") {
+        removeFileEntry(payload.filePath);
+      }
+    });
+    return () => unsub();
+  }, [
+    projectPath,
+    isActive,
+    claude,
+    insertFileEntry,
+    removeFileEntry,
+    addTouchedFile,
+  ]);
 
   // ── Resizable divider drag ─────────────────────────────────────────────────
   const handleDividerDrag = useCallback(
@@ -375,20 +454,20 @@ const ProjectView: React.FC<ProjectViewProps> = ({ projectPath }) => {
         )}
       </div>
 
-      {/* Resizable divider between terminal area and info tabs */}
-      <ResizeDivider orientation="horizontal" onDrag={handleDividerDrag} />
-
-      {/* Info tabs */}
-      <div
-        className={
-          infoPanelCollapsed
-            ? "shrink-0 overflow-hidden"
-            : "shrink-0 overflow-hidden"
-        }
-        style={infoPanelCollapsed ? {} : { height: `${infoPanelHeight}%` }}
-      >
-        <InfoTabs projectPath={projectPath} />
-      </div>
+      {/* Resizable divider + Info tabs — only rendered for active project.
+          Unmounts when switching away, remounts when switching back.
+          Components handle remount gracefully (git/activity re-fetch). */}
+      {isActive && (
+        <>
+          <ResizeDivider orientation="horizontal" onDrag={handleDividerDrag} />
+          <div
+            className="shrink-0 overflow-hidden"
+            style={infoPanelCollapsed ? {} : { height: `${infoPanelHeight}%` }}
+          >
+            <InfoTabs projectPath={projectPath} />
+          </div>
+        </>
+      )}
     </div>
   );
 };

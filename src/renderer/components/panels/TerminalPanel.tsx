@@ -43,9 +43,37 @@ const SingleTerminal: React.FC<SingleTerminalProps> = ({
   const onExitRef = useRef(onExit);
   onExitRef.current = onExit;
 
+  // Buffer PTY data that arrives before xterm.js is ready to render.
+  // This prevents losing early shell output (prompt, motd, etc.).
+  const earlyDataBuffer = useRef<string[]>([]);
+  const terminalReady = useRef(false);
+
+  // Start listening for PTY data immediately (before terminal is ready).
+  // Buffer any data that arrives early and flush once terminal is wired.
+  useEffect(() => {
+    const removePtyData = claude.onPtyData((payload) => {
+      if (payload.sessionId !== sessionIdRef.current) return;
+      if (terminalReady.current) return; // handled by the wired effect
+      earlyDataBuffer.current.push(payload.data);
+    });
+
+    return () => {
+      removePtyData();
+    };
+  }, [claude]);
+
   // ─── Wire PTY I/O once terminal is ready ─────────────────────────────
   useEffect(() => {
     if (!terminal) return;
+
+    // Flush any buffered data that arrived before terminal was ready
+    if (earlyDataBuffer.current.length > 0) {
+      for (const chunk of earlyDataBuffer.current) {
+        terminal.write(chunk);
+      }
+      earlyDataBuffer.current = [];
+    }
+    terminalReady.current = true;
 
     const onDataDispose = terminal.onData((data: string) => {
       claude.sendInput(sessionIdRef.current, data).catch((err: unknown) => {
@@ -75,6 +103,7 @@ const SingleTerminal: React.FC<SingleTerminalProps> = ({
     });
 
     return () => {
+      terminalReady.current = false;
       onDataDispose.dispose();
       removePtyData();
       removePtyExit();
@@ -117,6 +146,7 @@ const SingleTerminal: React.FC<SingleTerminalProps> = ({
     if (isVisible && terminal && fitAddon) {
       requestAnimationFrame(() => {
         handleResize();
+        terminal.scrollToBottom();
         terminal.focus();
       });
     }
@@ -146,13 +176,9 @@ const SingleTerminal: React.FC<SingleTerminalProps> = ({
 
   return (
     <div
-      className="flex-1 min-h-0 min-w-0 w-full h-full overflow-hidden"
-      style={{
-        display: isVisible ? "flex" : "none",
-        flexDirection: "column",
-        backgroundColor: "#09090b",
-      }}
-      tabIndex={0}
+      className="flex-1 min-h-0 min-w-0 w-full h-full overflow-hidden flex flex-col"
+      style={{ backgroundColor: "#09090b" }}
+      tabIndex={isVisible ? 0 : -1}
       onFocus={() => terminal?.focus()}
     >
       <div
@@ -329,24 +355,31 @@ const TerminalPanel: React.FC<TerminalPanelProps> = ({
         onNewTab={onNewTab}
       />
 
-      {/* Terminal instances — all mounted, only active one is visible */}
+      {/* Terminal instances — all mounted, inactive ones use visibility:hidden
+           so xterm.js can still measure dimensions (display:none breaks FitAddon). */}
       <div className="flex-1 min-h-0 min-w-0 relative">
-        {tabs.map((tab) => (
-          <div
-            key={tab.sessionId}
-            className="absolute inset-0"
-            style={{
-              display: tab.sessionId === activeTabId ? "flex" : "none",
-              flexDirection: "column",
-            }}
-          >
-            <SingleTerminal
-              sessionId={tab.sessionId}
-              isVisible={tab.sessionId === activeTabId}
-              onExit={onTabExit}
-            />
-          </div>
-        ))}
+        {tabs.map((tab) => {
+          const isActive = tab.sessionId === activeTabId;
+          return (
+            <div
+              key={tab.sessionId}
+              className="absolute inset-0"
+              style={{
+                visibility: isActive ? "visible" : "hidden",
+                pointerEvents: isActive ? "auto" : "none",
+                zIndex: isActive ? 1 : 0,
+                display: "flex",
+                flexDirection: "column",
+              }}
+            >
+              <SingleTerminal
+                sessionId={tab.sessionId}
+                isVisible={tab.sessionId === activeTabId}
+                onExit={onTabExit}
+              />
+            </div>
+          );
+        })}
       </div>
     </div>
   );

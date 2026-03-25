@@ -19,6 +19,7 @@ export interface ClaudeAPI {
   sendInput(sessionId: string, data: string): Promise<void>;
   resizeSession(sessionId: string, cols: number, rows: number): Promise<void>;
   killSession(sessionId: string): Promise<void>;
+  getChildProcesses(sessionId: string): Promise<string[]>;
   listSessions(): Promise<SessionListEntry[]>;
   onPtyData(callback: (data: PtyDataPayload) => void): () => void;
   onPtyExit(callback: (data: PtyExitPayload) => void): () => void;

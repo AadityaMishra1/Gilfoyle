@@ -1,4 +1,4 @@
-import React, { useCallback } from "react";
+import React, { useCallback, useState } from "react";
 import {
   Folder,
   FolderOpen,
@@ -9,6 +9,8 @@ import {
   X,
   ChevronDown,
   ChevronRight,
+  FilePlus,
+  FolderPlus,
 } from "lucide-react";
 import {
   useProjectStore,
@@ -22,7 +24,8 @@ import { UsageDetails } from "../usage/UsageDetails";
 import { useDiscoverStore } from "../../stores/discover-store";
 import { useTabStore } from "../../stores/tab-store";
 import DiscoverPanel from "../discover/DiscoverPanel";
-import TreeView from "../shared/TreeView";
+import TreeView, { ContextMenu } from "../shared/TreeView";
+import type { FileEntry } from "../../stores/file-store";
 
 // ─── Discover Section ─────────────────────────────────────────────────────────
 
@@ -144,11 +147,24 @@ const FilesSidebar: React.FC = () => {
   const expandedPaths = useFileStore((s) => s.expandedPaths);
   const selectedFile = useFileStore((s) => s.selectedFile);
   const touchedFiles = useFileStore((s) => s.touchedFiles);
+  const inlineEdit = useFileStore((s) => s.inlineEdit);
   const toggleExpanded = useFileStore((s) => s.toggleExpanded);
   const selectFile = useFileStore((s) => s.selectFile);
   const setOpenFile = useFileStore((s) => s.setOpenFile);
+  const startInlineEdit = useFileStore((s) => s.startInlineEdit);
+  const cancelInlineEdit = useFileStore((s) => s.cancelInlineEdit);
+  const renameFileEntry = useFileStore((s) => s.renameFileEntry);
+  const insertFileEntry = useFileStore((s) => s.insertFileEntry);
   const cwd = useFileStore((s) => s.cwd);
   const [collapsed, setCollapsed] = React.useState(false);
+  const [ctxMenu, setCtxMenu] = useState<{
+    x: number;
+    y: number;
+    entry: FileEntry;
+    siblings: FileEntry[];
+  } | null>(null);
+
+  const win = window as Window & { claude?: Record<string, unknown> };
 
   const handleFileClick = useCallback(
     async (filePath: string) => {
@@ -167,35 +183,271 @@ const FilesSidebar: React.FC = () => {
     [selectFile, cwd, claude, setOpenFile],
   );
 
-  if (fileTree.length === 0) return null;
+  // Determine parent directory for new file/folder creation.
+  const getCreateTarget = useCallback((): string => {
+    if (!selectedFile) return "";
+    const findEntry = (
+      entries: FileEntry[],
+      path: string,
+    ): FileEntry | null => {
+      for (const e of entries) {
+        if (e.path === path) return e;
+        if (e.children) {
+          const found = findEntry(e.children, path);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+    const entry = findEntry(fileTree, selectedFile);
+    if (entry?.isDirectory && expandedPaths.has(entry.path)) {
+      return entry.path;
+    }
+    const lastSlash = selectedFile.lastIndexOf("/");
+    return lastSlash > 0 ? selectedFile.substring(0, lastSlash) : "";
+  }, [selectedFile, fileTree, expandedPaths]);
+
+  const handleNewFile = useCallback(() => {
+    startInlineEdit({ mode: "create-file", targetPath: getCreateTarget() });
+  }, [getCreateTarget, startInlineEdit]);
+
+  const handleNewFolder = useCallback(() => {
+    startInlineEdit({ mode: "create-folder", targetPath: getCreateTarget() });
+  }, [getCreateTarget, startInlineEdit]);
+
+  // Inline edit confirm handler.
+  const handleInlineConfirm = useCallback(
+    async (name: string) => {
+      if (!cwd || !inlineEdit) return;
+      const api = win.claude as
+        | {
+            createFile?: (p: string) => Promise<{ ok: boolean }>;
+            createDir?: (p: string) => Promise<{ ok: boolean }>;
+            renameFile?: (o: string, n: string) => Promise<{ ok: boolean }>;
+          }
+        | undefined;
+
+      if (inlineEdit.mode === "rename") {
+        const oldRelative = inlineEdit.targetPath;
+        const lastSlash = oldRelative.lastIndexOf("/");
+        const parentRelative =
+          lastSlash > 0 ? oldRelative.substring(0, lastSlash) : "";
+        const newRelative = parentRelative ? `${parentRelative}/${name}` : name;
+        const result = await api?.renameFile?.(
+          `${cwd}/${oldRelative}`,
+          `${cwd}/${newRelative}`,
+        );
+        if (result?.ok) {
+          renameFileEntry(oldRelative, newRelative);
+        }
+      } else {
+        const parentRelative = inlineEdit.targetPath;
+        const newRelative = parentRelative ? `${parentRelative}/${name}` : name;
+        const absolute = `${cwd}/${newRelative}`;
+        if (inlineEdit.mode === "create-folder") {
+          await api?.createDir?.(absolute);
+          insertFileEntry(newRelative, true);
+        } else {
+          await api?.createFile?.(absolute);
+          insertFileEntry(newRelative, false);
+          selectFile(newRelative);
+        }
+      }
+      cancelInlineEdit();
+    },
+    [
+      cwd,
+      inlineEdit,
+      win.claude,
+      renameFileEntry,
+      insertFileEntry,
+      selectFile,
+      cancelInlineEdit,
+    ],
+  );
+
+  // Delete handler.
+  const handleDelete = useCallback(
+    async (filePath: string) => {
+      if (!cwd) return;
+      const entryName = filePath.split("/").pop() ?? filePath;
+      const confirmed = window.confirm(`Move "${entryName}" to Trash?`);
+      if (!confirmed) return;
+      const api = win.claude as
+        | {
+            trashFile?: (p: string) => Promise<{ ok: boolean }>;
+          }
+        | undefined;
+      const result = await api?.trashFile?.(`${cwd}/${filePath}`);
+      if (result?.ok && selectedFile === filePath) {
+        selectFile(null);
+      }
+    },
+    [cwd, selectedFile, selectFile, win.claude],
+  );
+
+  // Drag-and-drop move handler.
+  const handleDropMove = useCallback(
+    async (sourcePath: string, targetDirPath: string) => {
+      if (!cwd) return;
+      const fileName = sourcePath.split("/").pop() ?? sourcePath;
+      const newRelative = `${targetDirPath}/${fileName}`;
+      const api = win.claude as
+        | { renameFile?: (o: string, n: string) => Promise<{ ok: boolean }> }
+        | undefined;
+      const result = await api?.renameFile?.(
+        `${cwd}/${sourcePath}`,
+        `${cwd}/${newRelative}`,
+      );
+      if (result?.ok) {
+        renameFileEntry(sourcePath, newRelative);
+      }
+    },
+    [cwd, win.claude, renameFileEntry],
+  );
+
+  // External file drop handler (from Finder/Explorer).
+  const handleExternalDrop = useCallback(
+    async (absolutePaths: string[], targetDirPath: string) => {
+      if (!cwd) return;
+      const destAbsolute = targetDirPath ? `${cwd}/${targetDirPath}` : cwd;
+      const api = win.claude as
+        | {
+            copyFilesInto?: (
+              srcs: string[],
+              dest: string,
+            ) => Promise<Array<{ src: string; ok: boolean }>>;
+          }
+        | undefined;
+      await api?.copyFilesInto?.(absolutePaths, destAbsolute);
+      // Chokidar watcher will pick up the new files automatically.
+    },
+    [cwd, win.claude],
+  );
+
+  // Context menu handler.
+  const handleContextMenu = useCallback(
+    (e: React.MouseEvent, entry: FileEntry, siblings: FileEntry[]) => {
+      setCtxMenu({ x: e.clientX, y: e.clientY, entry, siblings });
+    },
+    [],
+  );
+
+  if (fileTree.length === 0 && !inlineEdit) return null;
 
   return (
-    <div className="flex flex-col min-h-0">
-      <button
-        type="button"
-        onClick={() => setCollapsed((c) => !c)}
-        className="flex items-center gap-1 px-3 py-1.5 shrink-0 text-stone-600 hover:text-stone-400 transition-colors"
-      >
-        {collapsed ? <ChevronRight size={10} /> : <ChevronDown size={10} />}
-        <span
-          className="uppercase tracking-widest font-medium"
-          style={{ fontSize: 10 }}
+    <div className="flex flex-col min-h-0 flex-1">
+      {/* Header row with collapse toggle + new file/folder buttons */}
+      <div className="flex items-center shrink-0">
+        <button
+          type="button"
+          onClick={() => setCollapsed((c) => !c)}
+          className="flex items-center gap-1 px-3 py-1.5 text-stone-600 hover:text-stone-400 transition-colors"
         >
-          Files
-        </span>
-      </button>
+          {collapsed ? <ChevronRight size={10} /> : <ChevronDown size={10} />}
+          <span
+            className="uppercase tracking-widest font-medium"
+            style={{ fontSize: 10 }}
+          >
+            Files
+          </span>
+        </button>
+        {!collapsed && cwd && (
+          <div className="flex items-center gap-0.5 ml-auto mr-2">
+            <button
+              type="button"
+              onClick={handleNewFile}
+              className="p-0.5 rounded text-stone-600 hover:text-stone-300 hover:bg-stone-700/50 transition-colors cursor-pointer"
+              title="New File"
+            >
+              <FilePlus size={12} />
+            </button>
+            <button
+              type="button"
+              onClick={handleNewFolder}
+              className="p-0.5 rounded text-stone-600 hover:text-stone-300 hover:bg-stone-700/50 transition-colors cursor-pointer"
+              title="New Folder"
+            >
+              <FolderPlus size={12} />
+            </button>
+          </div>
+        )}
+      </div>
 
       {!collapsed && (
-        <div className="overflow-y-auto min-h-0" style={{ maxHeight: 300 }}>
+        <div className="overflow-y-auto flex-1 min-h-0">
           <TreeView
             entries={fileTree}
             expandedPaths={expandedPaths}
             selectedFile={selectedFile}
             touchedFiles={touchedFiles}
+            inlineEdit={inlineEdit}
             onToggleExpand={toggleExpanded}
             onSelectFile={handleFileClick}
+            onContextMenu={handleContextMenu}
+            onInlineConfirm={handleInlineConfirm}
+            onInlineCancel={cancelInlineEdit}
+            onDropMove={handleDropMove}
+            onExternalDrop={handleExternalDrop}
           />
         </div>
+      )}
+
+      {/* Context menu */}
+      {ctxMenu && (
+        <ContextMenu
+          x={ctxMenu.x}
+          y={ctxMenu.y}
+          isDirectory={ctxMenu.entry.isDirectory}
+          onNewFile={() => {
+            const target = ctxMenu.entry.isDirectory
+              ? ctxMenu.entry.path
+              : ctxMenu.entry.path.substring(
+                  0,
+                  ctxMenu.entry.path.lastIndexOf("/"),
+                ) || "";
+            if (ctxMenu.entry.isDirectory) toggleExpanded(ctxMenu.entry.path);
+            startInlineEdit({ mode: "create-file", targetPath: target });
+          }}
+          onNewFolder={() => {
+            const target = ctxMenu.entry.isDirectory
+              ? ctxMenu.entry.path
+              : ctxMenu.entry.path.substring(
+                  0,
+                  ctxMenu.entry.path.lastIndexOf("/"),
+                ) || "";
+            if (ctxMenu.entry.isDirectory) toggleExpanded(ctxMenu.entry.path);
+            startInlineEdit({ mode: "create-folder", targetPath: target });
+          }}
+          onRename={() =>
+            startInlineEdit({
+              mode: "rename",
+              targetPath: ctxMenu.entry.path,
+            })
+          }
+          onDelete={() => handleDelete(ctxMenu.entry.path)}
+          onCopyPath={() => {
+            const abs = cwd
+              ? `${cwd}/${ctxMenu.entry.path}`
+              : ctxMenu.entry.path;
+            navigator.clipboard.writeText(abs).catch(() => {});
+          }}
+          onCopyRelativePath={() =>
+            navigator.clipboard.writeText(ctxMenu.entry.path).catch(() => {})
+          }
+          onRevealInFinder={() => {
+            const abs = cwd
+              ? `${cwd}/${ctxMenu.entry.path}`
+              : ctxMenu.entry.path;
+            const api = win.claude as
+              | {
+                  revealInFinder?: (p: string) => Promise<void>;
+                }
+              | undefined;
+            api?.revealInFinder?.(abs).catch(() => {});
+          }}
+          onClose={() => setCtxMenu(null)}
+        />
       )}
     </div>
   );
@@ -237,7 +489,7 @@ const Sidebar: React.FC = () => {
 
   return (
     <div
-      className="flex flex-col shrink-0"
+      className="flex flex-col shrink-0 h-full"
       style={{
         width: sidebarWidth,
         backgroundColor: "var(--bg-sidebar)",
@@ -256,7 +508,7 @@ const Sidebar: React.FC = () => {
           </span>
         </div>
 
-        <div className="overflow-y-auto min-h-0" style={{ maxHeight: 280 }}>
+        <div className="overflow-y-auto min-h-0 max-h-[30vh]">
           {openProjects.length === 0 ? (
             <div
               className="px-3 py-2 text-stone-600 italic"
@@ -295,8 +547,13 @@ const Sidebar: React.FC = () => {
       <div className="border-t border-stone-800 mx-0" />
 
       {/* ── FILES (only when a project is active) ──────────────────── */}
-      {activeProjectPath && <FilesSidebar />}
+      {activeProjectPath && (
+        <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+          <FilesSidebar />
+        </div>
+      )}
       {activeProjectPath && <div className="border-t border-stone-800 mx-0" />}
+      {!activeProjectPath && <div className="flex-1" />}
 
       {/* ── USAGE ────────────────────────────────────────────────────── */}
       <div className="shrink-0">

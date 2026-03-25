@@ -257,19 +257,19 @@ const AgentSection: React.FC = () => {
     }
   }, []);
 
-  // Subscribe to stream events — handles both single events and batched arrays
+  // Subscribe to stream events — handles both single events and batched arrays.
   const handleEvent = useCallback(
     (raw: unknown) => {
-      if (Array.isArray(raw)) {
-        for (const item of raw) processOne(item);
-      } else {
-        processOne(raw);
+      const items = Array.isArray(raw) ? raw : [raw];
+      for (const item of items) {
+        processOne(item);
       }
       scheduleFlush();
     },
     [processOne, scheduleFlush],
   );
 
+  // Subscribe to live stream events (filtered by projectPath in handleEvent).
   useEffect(() => {
     const win = window as unknown as {
       claude?: { onStreamEvent?: (cb: (e: unknown) => void) => () => void };

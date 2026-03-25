@@ -4,44 +4,13 @@
  * Layout:
  *   Top:    Name (stone-100, 13px, semibold) + category pill (right-aligned)
  *   Middle: Description (stone-400, 11px, 2-line clamp)
- *   Bottom: Star count badge + "Install" / "Installed" button
- *
- * Install triggers the installCommand via the preload PTY bridge by writing
- * the command string into the active terminal session. Falls back to copying
- * to clipboard when no session is available.
+ *   Bottom: Star count badge + "View Repo" button
  */
 
-import React, { useState, useCallback } from "react";
-import {
-  Star,
-  Check,
-  Download,
-  ExternalLink,
-  BadgeCheck,
-  X,
-} from "lucide-react";
+import React, { useCallback } from "react";
+import { Star, ExternalLink, BadgeCheck } from "lucide-react";
 import type { PluginEntry } from "../../stores/discover-store";
 import { useDiscoverStore } from "../../stores/discover-store";
-
-// ─── Window API type ──────────────────────────────────────────────────────────
-
-type ClaudeWindow = Window & {
-  claude?: {
-    installPlugin?: (
-      installCommand: string,
-    ) => Promise<{ ok: boolean; error?: string }>;
-    getInstalledExtensions?: () => Promise<{
-      pluginNames: string[];
-      plugins: Array<{
-        key: string;
-        name: string;
-        marketplace: string;
-        enabled: boolean;
-        version: string;
-      }>;
-    }>;
-  };
-};
 
 // ─── Category pill colours ────────────────────────────────────────────────────
 
@@ -101,180 +70,17 @@ const CategoryPill: React.FC<CategoryPillProps> = ({ category }) => (
   </span>
 );
 
-// ─── Install button ───────────────────────────────────────────────────────────
+// ─── View Repo button ────────────────────────────────────────────────────────
 
-interface InstallButtonProps {
-  plugin: PluginEntry;
-  installed: boolean;
-  onInstall: () => void;
+interface ViewRepoButtonProps {
+  repo: string;
 }
 
-const InstallButton: React.FC<InstallButtonProps> = ({
-  plugin,
-  installed,
-  onInstall,
-}) => {
-  const [installing, setInstalling] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const setInstalledPluginNames = useDiscoverStore(
-    (s) => s.setInstalledPluginNames,
-  );
-  const setInstalledPluginData = useDiscoverStore(
-    (s) => s.setInstalledPluginData,
-  );
-
-  // Detect if this is a Claude plugin command vs standalone tool
-  const isClaudePlugin =
-    plugin.installCommand.startsWith("claude plugin") ||
-    plugin.installCommand.startsWith("claude mcp");
-
-  const handleClick = useCallback(async () => {
-    if (installed || installing) return;
-    setInstalling(true);
-    setError(null);
-
-    const win = window as ClaudeWindow;
-
-    try {
-      if (win.claude?.installPlugin) {
-        const result = await win.claude.installPlugin(plugin.installCommand);
-        if (result.ok) {
-          // Re-read installed extensions from disk to verify
-          if (win.claude.getInstalledExtensions) {
-            const ext = await win.claude.getInstalledExtensions();
-            if (ext?.pluginNames) {
-              setInstalledPluginNames(ext.pluginNames);
-            }
-            if (ext?.plugins) {
-              setInstalledPluginData(ext.plugins);
-            }
-          }
-          onInstall();
-        } else {
-          setError(result.error ?? "Install failed");
-          setTimeout(() => setError(null), 5000);
-        }
-      } else {
-        // Fallback: copy command to clipboard
-        await navigator.clipboard.writeText(plugin.installCommand);
-        setError("Copied — run in terminal");
-        setTimeout(() => setError(null), 3000);
-      }
-    } catch {
-      setError("Install failed");
-      setTimeout(() => setError(null), 5000);
-    } finally {
-      setInstalling(false);
-    }
-  }, [
-    installed,
-    installing,
-    plugin.installCommand,
-    onInstall,
-    setInstalledPluginNames,
-    setInstalledPluginData,
-  ]);
-
-  // Uninstall handler — only for claude plugin/mcp type installs
-  const handleUninstall = useCallback(async () => {
-    if (!installed || installing) return;
-    setInstalling(true);
-    setError(null);
-
-    const win = window as ClaudeWindow;
-    // Derive uninstall command from install command
-    let uninstallCmd = "";
-    if (plugin.installCommand.startsWith("claude plugin install")) {
-      uninstallCmd = plugin.installCommand.replace("install", "uninstall");
-    } else if (plugin.installCommand.startsWith("claude mcp add")) {
-      const parts = plugin.installCommand.split(" ");
-      const serverName = parts[3]; // "claude mcp add <name> ..."
-      uninstallCmd = `claude mcp remove ${serverName}`;
-    } else if (plugin.installCommand.startsWith("npm install -g")) {
-      uninstallCmd = plugin.installCommand.replace("install", "uninstall");
-    }
-
-    if (!uninstallCmd || !win.claude?.installPlugin) {
-      setInstalling(false);
-      return;
-    }
-
-    try {
-      const result = await win.claude.installPlugin(uninstallCmd);
-      if (result.ok) {
-        // Re-read installed extensions
-        if (win.claude.getInstalledExtensions) {
-          const ext = await win.claude.getInstalledExtensions();
-          if (ext?.pluginNames) setInstalledPluginNames(ext.pluginNames);
-          if (ext?.plugins) setInstalledPluginData(ext.plugins);
-        }
-        // Remove from session-level tracking too
-        useDiscoverStore.getState().installedIds.delete(plugin.id);
-      } else {
-        setError(result.error ?? "Uninstall failed");
-        setTimeout(() => setError(null), 5000);
-      }
-    } catch {
-      setError("Uninstall failed");
-      setTimeout(() => setError(null), 5000);
-    } finally {
-      setInstalling(false);
-    }
-  }, [
-    installed,
-    installing,
-    plugin.installCommand,
-    plugin.id,
-    setInstalledPluginNames,
-    setInstalledPluginData,
-  ]);
-
-  // Show spinner for both install and uninstall operations
-  if (installing) {
-    return (
-      <span
-        className="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium
-          bg-stone-700/60 text-stone-300 ring-1 ring-stone-600/40 shrink-0"
-        style={{ fontFamily: "'Geist', system-ui, sans-serif" }}
-      >
-        <Download size={9} className="shrink-0 animate-pulse" />
-        {installed ? "Removing..." : "Installing..."}
-      </span>
-    );
-  }
-
-  if (installed) {
-    return (
-      <button
-        type="button"
-        onClick={handleUninstall}
-        className="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium
-          bg-emerald-900/30 text-emerald-400 ring-1 ring-emerald-700/40 shrink-0
-          hover:bg-red-900/30 hover:text-red-400 hover:ring-red-700/40
-          transition-colors duration-150 cursor-pointer group"
-        style={{ fontFamily: "'Geist', system-ui, sans-serif" }}
-        title="Click to uninstall"
-      >
-        <Check size={9} className="shrink-0 group-hover:hidden" />
-        <X size={9} className="shrink-0 hidden group-hover:block" />
-        <span className="group-hover:hidden">Installed</span>
-        <span className="hidden group-hover:inline">Uninstall</span>
-      </button>
-    );
-  }
-
-  if (error) {
-    return (
-      <span
-        className="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium
-          bg-red-900/30 text-red-400 ring-1 ring-red-700/40 shrink-0 max-w-[140px] truncate"
-        style={{ fontFamily: "'Geist', system-ui, sans-serif" }}
-        title={error}
-      >
-        {error}
-      </span>
-    );
-  }
+const ViewRepoButton: React.FC<ViewRepoButtonProps> = ({ repo }) => {
+  const handleClick = useCallback(() => {
+    const url = repo.startsWith("http") ? repo : `https://github.com/${repo}`;
+    window.open(url, "_blank");
+  }, [repo]);
 
   return (
     <button
@@ -285,10 +91,10 @@ const InstallButton: React.FC<InstallButtonProps> = ({
         hover:bg-[#e8a872]/25 hover:ring-[#e8a872]/50
         active:bg-[#e8a872]/20 transition-colors duration-100 shrink-0 cursor-pointer"
       style={{ fontFamily: "'Geist', system-ui, sans-serif" }}
-      title={plugin.installCommand}
+      title={`View on GitHub: ${repo}`}
     >
-      <Download size={9} className="shrink-0" />
-      Install
+      <ExternalLink size={9} className="shrink-0" />
+      View Repo
     </button>
   );
 };
@@ -327,43 +133,10 @@ interface PluginCardProps {
 }
 
 const PluginCard: React.FC<PluginCardProps> = ({ plugin }) => {
-  const installedIds = useDiscoverStore((s) => s.installedIds);
-  const installedPluginNames = useDiscoverStore((s) => s.installedPluginNames);
-  const markInstalled = useDiscoverStore((s) => s.markInstalled);
-
-  // Check install status from both session and disk state
-  const installed = React.useMemo(() => {
-    if (installedIds.has(plugin.id)) return true;
-    // Check pluginIds mapping
-    if (plugin.pluginIds) {
-      for (const pid of plugin.pluginIds) {
-        if (installedPluginNames.has(pid)) return true;
-      }
-    }
-    if (installedPluginNames.has(plugin.id)) return true;
-    for (const name of installedPluginNames) {
-      if (
-        name === plugin.id ||
-        name.includes(plugin.id) ||
-        plugin.id.includes(name)
-      )
-        return true;
-    }
-    return false;
-  }, [plugin, installedIds, installedPluginNames]);
-
-  const handleInstall = useCallback(() => {
-    markInstalled(plugin.id);
-  }, [plugin.id, markInstalled]);
-
   return (
     <div
-      className={[
-        "flex flex-col gap-1.5 px-3 py-2.5 rounded-md border transition-colors duration-100",
-        installed
-          ? "bg-stone-900/60 border-stone-700/50"
-          : "bg-stone-900 border-stone-800 hover:border-stone-700",
-      ].join(" ")}
+      className="flex flex-col gap-1.5 px-3 py-2.5 rounded-md border transition-colors duration-100
+        bg-stone-900 border-stone-800 hover:border-stone-700"
       style={{ minHeight: 80 }}
     >
       {/* Row 1: name + category */}
@@ -413,11 +186,7 @@ const PluginCard: React.FC<PluginCardProps> = ({ plugin }) => {
         <StarBadge count={plugin.stars} />
         <GitHubLink repo={plugin.repo} />
         <div className="flex-1" />
-        <InstallButton
-          plugin={plugin}
-          installed={installed}
-          onInstall={handleInstall}
-        />
+        <ViewRepoButton repo={plugin.repo} />
       </div>
     </div>
   );

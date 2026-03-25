@@ -38,9 +38,46 @@ const SingleTerminal: React.FC<SingleTerminalProps> = ({
   const onExitRef = useRef(onExit);
   onExitRef.current = onExit;
 
+  // Buffer PTY data that arrives before xterm.js is ready to render.
+  // This prevents losing early shell output (prompt, motd, etc.).
+  const earlyDataBuffer = useRef<string[]>([]);
+  const terminalReady = useRef(false);
+
+  // Start listening for PTY data immediately (before terminal is ready).
+  // Buffer any data that arrives early and flush once terminal is wired.
+  useEffect(() => {
+    const removePtyData = claude.onPtyData((payload) => {
+      if (payload.sessionId !== sessionIdRef.current) return;
+      if (terminalReady.current) return; // handled by the wired effect
+      earlyDataBuffer.current.push(payload.data);
+    });
+
+    return () => {
+      removePtyData();
+    };
+  }, [claude]);
+
   // ─── Wire PTY I/O once xterm is ready ─────────────────────────────────
   useEffect(() => {
     if (!terminal) return;
+
+    // Show welcome banner and flush any early-buffered data.
+    // Terminals now stay alive across project switches (visibility:hidden),
+    // so no scrollback replay is needed.
+    terminal.write(
+      "\x1b[2m  Welcome to Gilfoyle\x1b[0m\r\n" +
+        "\x1b[2m  Type \x1b[0m\x1b[33mclaude\x1b[0m\x1b[2m to start a session, or any shell command.\x1b[0m\r\n\r\n",
+    );
+    terminal.focus();
+
+    // Flush any data that arrived before terminal was ready.
+    if (earlyDataBuffer.current.length > 0) {
+      for (const chunk of earlyDataBuffer.current) {
+        terminal.write(chunk);
+      }
+      earlyDataBuffer.current = [];
+    }
+    terminalReady.current = true;
 
     // Keystrokes in xterm -> PTY input
     const onDataDispose = terminal.onData((data: string) => {
@@ -73,6 +110,7 @@ const SingleTerminal: React.FC<SingleTerminalProps> = ({
     });
 
     return () => {
+      terminalReady.current = false;
       onDataDispose.dispose();
       removePtyData();
       removePtyExit();
@@ -84,13 +122,24 @@ const SingleTerminal: React.FC<SingleTerminalProps> = ({
     if (!fitAddon || !terminal) return;
     fit();
     const { cols, rows } = terminal;
-    if (cols > 0 && rows > 0) {
-      claude
-        .resizeSession(sessionIdRef.current, cols, rows)
-        .catch((err: unknown) => {
-          console.error("[SingleTerminal] resizeSession error:", err);
-        });
+    // Guard against tiny dimensions (container not yet laid out or hidden).
+    if (cols < 10 || rows < 3) {
+      setTimeout(() => {
+        if (!fitAddon || !terminal) return;
+        fit();
+        const c = terminal.cols;
+        const r = terminal.rows;
+        if (c >= 10 && r >= 3) {
+          claude.resizeSession(sessionIdRef.current, c, r).catch(() => {});
+        }
+      }, 150);
+      return;
     }
+    claude
+      .resizeSession(sessionIdRef.current, cols, rows)
+      .catch((err: unknown) => {
+        console.error("[SingleTerminal] resizeSession error:", err);
+      });
   }, [fitAddon, terminal, fit, claude]);
 
   useEffect(() => {
@@ -115,16 +164,6 @@ const SingleTerminal: React.FC<SingleTerminalProps> = ({
       });
     }
   }, [isVisible, terminal, fitAddon, handleResize]);
-
-  // ─── Welcome banner on first mount ────────────────────────────────────
-  useEffect(() => {
-    if (!terminal) return;
-    terminal.write(
-      "\x1b[2m  Welcome to Gilfoyle\x1b[0m\r\n" +
-        "\x1b[2m  Type \x1b[0m\x1b[33mclaude\x1b[0m\x1b[2m to start a session, or any shell command.\x1b[0m\r\n\r\n",
-    );
-    terminal.focus();
-  }, [terminal]);
 
   // ─── Cmd/Ctrl+F: pull focus back to terminal ──────────────────────────
   useEffect(() => {
