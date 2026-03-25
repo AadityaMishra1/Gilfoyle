@@ -174,15 +174,22 @@ export class PtyManager {
     const rows = opts.rows ?? 30;
     const name = opts.name ?? `Session ${this.sessions.size + 1}`;
 
-    // If resuming a Claude session, spawn `claude --resume <id>` or `claude --continue`
+    // If resuming a Claude session, spawn through a login shell so claude
+    // gets the full user environment (.zshrc, .zprofile, etc.). Without this,
+    // `claude --continue` can fail on large projects because it misses env
+    // vars that are only set in the shell profile. `exec` replaces the shell
+    // with claude so the PTY connects directly to it.
     let command = shell;
     let args: string[] = [];
+    let isDirect = false;
     if (opts.resumeSessionId) {
-      command = "claude";
-      args = ["--resume", opts.resumeSessionId];
+      command = shell;
+      args = ["-l", "-c", `exec claude --resume ${opts.resumeSessionId}`];
+      isDirect = true;
     } else if (opts.continueSession) {
-      command = "claude";
-      args = ["--continue"];
+      command = shell;
+      args = ["-l", "-c", "exec claude --continue"];
+      isDirect = true;
     }
 
     // Build a PATH that includes common install locations for tools like
