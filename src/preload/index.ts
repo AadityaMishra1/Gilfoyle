@@ -270,8 +270,8 @@ const api = {
   },
 
   // Get buffered agent stream events (restoring agent list after project switch)
-  getStreamEvents: (): Promise<unknown[]> =>
-    ipcRenderer.invoke(IPC_CHANNELS.GET_STREAM_EVENTS),
+  getStreamEvents: (projectPath: string): Promise<unknown[]> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GET_STREAM_EVENTS, projectPath),
 
   // PTY scrollback replay (for restoring terminal after project switch)
   getPtyScrollback: (sessionId: string): Promise<string> =>

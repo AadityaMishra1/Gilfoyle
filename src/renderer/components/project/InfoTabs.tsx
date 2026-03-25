@@ -41,7 +41,7 @@ const InfoTabs: React.FC<InfoTabsProps> = ({ projectPath }) => {
       content = <GitPanel projectPath={projectPath} />;
       break;
     case "tools":
-      content = <ToolsPanel />;
+      content = <ToolsPanel projectPath={projectPath} />;
       break;
     default:
       content = <ActivityFeed projectPath={projectPath} />;

@@ -1032,12 +1032,15 @@ export function registerIpcHandlers(
     }, 10000);
   });
 
-  const agentEventBuffer: unknown[] = [];
+  const agentEventBuffers = new Map<string, unknown[]>();
   const MAX_AGENT_EVENTS = 200;
 
-  ipcMain.handle(IPC_CHANNELS.GET_STREAM_EVENTS, () => {
-    return [...agentEventBuffer];
-  });
+  ipcMain.handle(
+    IPC_CHANNELS.GET_STREAM_EVENTS,
+    (_event, projectPath: string) => {
+      return [...(agentEventBuffers.get(projectPath) ?? [])];
+    },
+  );
 
   function processJsonlLines(
     newLines: Array<{ raw: Record<string, unknown>; timestamp: number }>,
@@ -1049,6 +1052,9 @@ export function registerIpcHandlers(
     const newActivities: ActivityEvent[] = [];
     // Batch agent stream events — send as single IPC instead of one per event
     const agentStreamBatch: unknown[] = [];
+
+    const projectsDir = path.join(homeDir, ".claude", "projects");
+    const derivedProjectPath = projectPathFromJsonl(filePath, projectsDir);
 
     for (const { raw } of newLines) {
       // Skip progress events early — they're ~80% of lines and contain
@@ -1070,9 +1076,6 @@ export function registerIpcHandlers(
 
       // Parse tool_use events into ActivityEvents.
       if (event.type === "tool_use") {
-        const projectsDir = path.join(homeDir, ".claude", "projects");
-        const derivedProjectPath = projectPathFromJsonl(filePath, projectsDir);
-
         const activity = parseToolUseToActivity(
           event,
           sessionId,
@@ -1085,7 +1088,7 @@ export function registerIpcHandlers(
         // Collect agent/task tool_use events for batched send
         if (event.toolName === "Agent" || event.toolName === "Task") {
           agentToolUseIds.add(event.toolUseId);
-          agentStreamBatch.push(event);
+          agentStreamBatch.push({ ...event, projectPath: derivedProjectPath });
         }
       }
 
@@ -1094,19 +1097,18 @@ export function registerIpcHandlers(
         event.type === "tool_result" &&
         agentToolUseIds.has(event.toolUseId)
       ) {
-        agentStreamBatch.push(event);
+        agentStreamBatch.push({ ...event, projectPath: derivedProjectPath });
       }
     }
 
     // Send batched agent events as single IPC message
     if (agentStreamBatch.length > 0 && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send(IPC_CHANNELS.STREAM_EVENT, agentStreamBatch);
-      for (const evt of agentStreamBatch) {
-        agentEventBuffer.push(evt);
-      }
-      if (agentEventBuffer.length > MAX_AGENT_EVENTS) {
-        agentEventBuffer.splice(0, agentEventBuffer.length - MAX_AGENT_EVENTS);
-      }
+      const bucket = agentEventBuffers.get(derivedProjectPath) ?? [];
+      for (const evt of agentStreamBatch) bucket.push(evt);
+      if (bucket.length > MAX_AGENT_EVENTS)
+        bucket.splice(0, bucket.length - MAX_AGENT_EVENTS);
+      agentEventBuffers.set(derivedProjectPath, bucket);
     }
 
     if (analyticsChanged) {

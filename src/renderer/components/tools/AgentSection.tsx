@@ -206,7 +206,11 @@ interface EventRecord {
   resultEvent?: ToolResultEvent;
 }
 
-const AgentSection: React.FC = () => {
+interface AgentSectionProps {
+  projectPath?: string;
+}
+
+const AgentSection: React.FC<AgentSectionProps> = ({ projectPath }) => {
   const [collapsed, setCollapsed] = useState(false);
 
   // Use a ref as the primary store to avoid re-renders on every event.
@@ -262,11 +266,14 @@ const AgentSection: React.FC = () => {
     (raw: unknown) => {
       const items = Array.isArray(raw) ? raw : [raw];
       for (const item of items) {
+        const evt = item as { projectPath?: string };
+        if (projectPath && evt.projectPath && evt.projectPath !== projectPath)
+          continue;
         processOne(item);
       }
       scheduleFlush();
     },
-    [processOne, scheduleFlush],
+    [processOne, scheduleFlush, projectPath],
   );
 
   // Subscribe to live stream events (filtered by projectPath in handleEvent).
@@ -282,6 +289,22 @@ const AgentSection: React.FC = () => {
     window.addEventListener("claude:stream-event", domHandler);
     return () => window.removeEventListener("claude:stream-event", domHandler);
   }, [handleEvent]);
+
+  // Load buffered events for this project on mount / project switch
+  useEffect(() => {
+    if (!projectPath) return;
+    recordsRef.current.clear();
+    setVersion(0);
+    window.claude
+      .getStreamEvents(projectPath)
+      .then((events) => {
+        if (Array.isArray(events)) {
+          for (const item of events) processOne(item);
+          scheduleFlush();
+        }
+      })
+      .catch(() => {});
+  }, [projectPath, processOne, scheduleFlush]);
 
   // Build agent list from ref (only recomputes when version bumps)
   const agents = useMemo<AgentRecord[]>(() => {
