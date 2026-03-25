@@ -27,6 +27,11 @@ release/
 # User data
 .gilfoyle/
 .claudegui/
+.claude/
+
+# Personal files
+*.certSigningRequest
+Screenshot*.png
 
 # OS
 .DS_Store

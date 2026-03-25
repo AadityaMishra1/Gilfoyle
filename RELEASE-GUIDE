@@ -1,0 +1,94 @@
+# Release Checklist
+
+Everything you need to do before and after publishing Gilfoyle.
+
+---
+
+## 1. Screenshots to Take
+
+Save all screenshots to docs/screenshots/ using Cmd+Shift+4 (region capture on macOS).
+
+| Filename              | What to show                                    | How to get there                                          |
+|-----------------------|-------------------------------------------------|-----------------------------------------------------------|
+| main.png              | Hero shot - Power layout with terminal, sidebar | Already captured                                          |
+| simple-layout.png     | Simple layout - clean terminal-only view        | Cmd+K > "Simple Layout"                                   |
+| power-layout.png      | Power layout - all panels visible               | Cmd+K > "Power Layout"                                    |
+| command-palette.png   | Command palette overlay                         | Press Cmd+K, screenshot before selecting                  |
+| onboarding.png        | Onboarding wizard (step 1 or 2)                 | Settings > Reset Onboarding > restart app                 |
+| activity-feed.png     | Activity tab with file edits and git ops        | Click Activity tab while Claude is working                |
+| file-browser.png      | File tree with code preview                     | Click a file in the sidebar file tree                     |
+| tools-panel.png       | Tools tab showing MCP servers, agents, hooks    | Click Tools tab in the info panel                         |
+| plugin-discover.png   | Plugin marketplace / discover panel             | Click Discover in sidebar                                 |
+| light-mode.png        | Light theme overview                            | Cmd+K > "Switch to Light Mode"                            |
+| settings.png          | Settings dialog                                 | Cmd+K > "Open Settings"                                   |
+
+Tips:
+- Use a project with recent Claude activity so panels aren't empty
+- Make sure terminal has colored output, not just a blank prompt
+- Capture at 2x retina (default Mac) for crisp GitHub images
+
+
+## 2. Homebrew Tap Setup
+
+Lets macOS users install with: brew install --cask gilfoyle
+
+Step 1: Create a PUBLIC GitHub repo named "homebrew-gilfoyle" under AadityaMishra1
+        https://github.com/new
+
+Step 2: Add file Casks/gilfoyle.rb with this content:
+
+    cask "gilfoyle" do
+      version "0.1.0"
+      sha256 "REPLACE_WITH_SHA256"
+
+      url "https://github.com/AadityaMishra1/Gilfoyle/releases/download/v#{version}/Gilfoyle-#{version}-universal.dmg"
+      name "Gilfoyle"
+      desc "Desktop GUI for Claude Code CLI"
+      homepage "https://github.com/AadityaMishra1/Gilfoyle"
+
+      depends_on formula: "node"
+
+      app "Gilfoyle.app"
+
+      zap trash: [
+        "~/Library/Application Support/gilfoyle",
+        "~/.gilfoyle",
+      ]
+    end
+
+Step 3: After your first GitHub Release builds the DMG, get the SHA256:
+    shasum -a 256 Gilfoyle-0.1.0-universal.dmg
+    Paste the hash replacing REPLACE_WITH_SHA256
+
+Step 4: Push and test:
+    brew tap AadityaMishra1/gilfoyle
+    brew install --cask gilfoyle
+
+Step 5: On each new release, update version + sha256, push to tap repo.
+
+
+## 3. First Release - Do This In Order
+
+ 1. Take all screenshots above
+ 2. Add the best ones to README.md
+ 3. Commit everything
+ 4. Tag: git tag v0.1.0 && git push origin v0.1.0
+ 5. Wait for CI release workflow to build DMG/EXE/AppImage
+ 6. Download macOS DMG from the release
+ 7. Run: shasum -a 256 Gilfoyle-*.dmg
+ 8. Create homebrew-gilfoyle repo with Casks/gilfoyle.rb + SHA256
+ 9. Test: brew tap AadityaMishra1/gilfoyle && brew install --cask gilfoyle
+10. Share the repo
+
+
+## 4. Distribution Channels
+
+| Channel                          | Status                          | Effort  |
+|----------------------------------|---------------------------------|---------|
+| GitHub Releases (DMG/EXE/AppImage) | Ready - CI builds on tag push | Done    |
+| Homebrew Cask                    | Needs tap repo created          | 15 min  |
+| Winget (Windows)                 | Submit manifest after release   | 30 min  |
+| AUR (Arch Linux)                 | Write PKGBUILD, no approval     | 20 min  |
+| Official Homebrew Cask           | Needs 225+ GitHub stars first   | Later   |
+| macOS code signing ($99/yr)      | Eliminates Gatekeeper warning   | Later   |
+| Windows Authenticode (~$120/yr)  | Eliminates SmartScreen warning  | Later   |

@@ -95,7 +95,7 @@ const Step1Welcome: React.FC<Step1Props> = ({ claudeStatus, onNext }) => (
         className="text-stone-400 text-sm leading-relaxed"
         style={{ fontFamily: "'Geist', system-ui, sans-serif" }}
       >
-        A visual dashboard for Claude Code.
+        A desktop environment for Claude Code.
         <br />
         Beautiful. Fast. Built for your workflow.
       </p>
@@ -119,7 +119,7 @@ const Step1Welcome: React.FC<Step1Props> = ({ claudeStatus, onNext }) => (
             className="text-stone-500 text-xs"
             style={{ fontFamily: "'Geist Mono', monospace" }}
           >
-            Checking for Claude Code…
+            Checking for Claude Code CLI…
           </span>
         </div>
       ) : claudeStatus.detected ? (
@@ -132,7 +132,7 @@ const Step1Welcome: React.FC<Step1Props> = ({ claudeStatus, onNext }) => (
             className="text-green-400 text-xs"
             style={{ fontFamily: "'Geist Mono', monospace" }}
           >
-            Claude Code detected
+            Claude Code CLI detected
             {claudeStatus.version != null ? `: ${claudeStatus.version}` : ""}
           </span>
         </div>
@@ -151,7 +151,7 @@ const Step1Welcome: React.FC<Step1Props> = ({ claudeStatus, onNext }) => (
                 color: "#e8a872",
               }}
             >
-              Claude Code not found in PATH
+              Claude Code CLI not found in PATH
             </span>
             <span
               className="text-stone-500 text-xs"
@@ -414,7 +414,7 @@ const Step3Tips: React.FC<Step3Props> = ({ onNext }) => (
       <TipCard
         icon={<Plus size={14} />}
         shortcut={`${modKey}+N`}
-        description="Start a new Claude Code session"
+        description="Start a new terminal session"
       />
     </div>
 

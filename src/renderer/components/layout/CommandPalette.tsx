@@ -91,7 +91,7 @@ const CommandPalette: React.FC = () => {
               <CommandItem
                 icon={<Layout size={14} />}
                 label="Simple Layout"
-                shortcut="Beginner"
+                shortcut="Minimal"
                 onSelect={() =>
                   runAndClose(() => {
                     setSidebarCollapsed(true);
@@ -102,7 +102,7 @@ const CommandPalette: React.FC = () => {
               <CommandItem
                 icon={<Zap size={14} />}
                 label="Power Layout"
-                shortcut="Bloomberg"
+                shortcut="Full"
                 onSelect={() =>
                   runAndClose(() => {
                     setSidebarCollapsed(false);
