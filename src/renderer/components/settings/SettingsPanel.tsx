@@ -200,7 +200,6 @@ const SettingsPanel: React.FC = () => {
             <Select<BillingMode>
               value={billingMode}
               options={[
-                { value: "auto", label: "Auto-detect" },
                 { value: "subscription", label: "Subscription" },
                 { value: "api", label: "API" },
               ]}

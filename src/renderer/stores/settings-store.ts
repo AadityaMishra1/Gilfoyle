@@ -1,8 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-export type BillingMode = "auto" | "subscription" | "api";
-export type PlanTier = "auto" | "pro" | "max";
+export type BillingMode = "subscription" | "api";
 export type AppTheme = "dark" | "light";
 
 interface SettingsStore {
@@ -11,7 +10,6 @@ interface SettingsStore {
   budgetThreshold: number;
   showCostInStatusBar: boolean;
   billingMode: BillingMode;
-  planTier: PlanTier;
   theme: AppTheme;
 
   setFontSize: (size: number) => void;
@@ -19,7 +17,6 @@ interface SettingsStore {
   setBudgetThreshold: (threshold: number) => void;
   setShowCostInStatusBar: (show: boolean) => void;
   setBillingMode: (mode: BillingMode) => void;
-  setPlanTier: (tier: PlanTier) => void;
   setTheme: (theme: AppTheme) => void;
   toggleTheme: () => void;
 }
@@ -32,8 +29,7 @@ export const useSettingsStore = create<SettingsStore>()(
         "'Geist Mono', 'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace",
       budgetThreshold: 10,
       showCostInStatusBar: true,
-      billingMode: "auto",
-      planTier: "auto",
+      billingMode: "subscription",
       theme: "dark",
 
       setFontSize: (fontSize) => set({ fontSize }),
@@ -42,7 +38,6 @@ export const useSettingsStore = create<SettingsStore>()(
       setShowCostInStatusBar: (showCostInStatusBar) =>
         set({ showCostInStatusBar }),
       setBillingMode: (billingMode) => set({ billingMode }),
-      setPlanTier: (planTier) => set({ planTier }),
       setTheme: (theme) => set({ theme }),
       toggleTheme: () =>
         set((s) => ({ theme: s.theme === "dark" ? "light" : "dark" })),

@@ -73,16 +73,17 @@ export function useTerminal(): UseTerminalReturn {
   const [terminal, setTerminal] = useState<Terminal | null>(null);
 
   const theme = useSettingsStore((s) => s.theme);
+  const fontSize = useSettingsStore((s) => s.fontSize);
 
-  // Create terminal ONCE — no theme in deps
+  // Create terminal ONCE — no theme/fontSize in deps
   useEffect(() => {
     if (!containerRef.current) return;
 
-    const initialTheme =
-      useSettingsStore.getState().theme === "light" ? LIGHT_THEME : DARK_THEME;
+    const settings = useSettingsStore.getState();
+    const initialTheme = settings.theme === "light" ? LIGHT_THEME : DARK_THEME;
 
     const term = new Terminal({
-      fontSize: 14,
+      fontSize: settings.fontSize ?? 14,
       lineHeight: 1.4,
       fontFamily:
         "'Geist Mono', 'Symbols Nerd Font Mono', 'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace",
@@ -150,11 +151,17 @@ export function useTerminal(): UseTerminalReturn {
   }, []);
 
   // Update theme IN-PLACE without destroying the terminal instance.
-  // This preserves the PTY connection, scrollback, and all listeners.
   useEffect(() => {
     if (!terminal) return;
     terminal.options.theme = theme === "light" ? LIGHT_THEME : DARK_THEME;
   }, [terminal, theme]);
+
+  // Update font size IN-PLACE when changed in Settings.
+  useEffect(() => {
+    if (!terminal || !fontSize) return;
+    terminal.options.fontSize = fontSize;
+    fitAddonRef.current?.fit();
+  }, [terminal, fontSize]);
 
   const fit = useCallback(() => {
     fitAddonRef.current?.fit();

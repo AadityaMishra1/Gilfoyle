@@ -157,16 +157,14 @@ export function buildMenu(mainWindow: BrowserWindow | null): void {
       {
         label: "Documentation",
         click(): void {
-          shell.openExternal(
-            "https://docs.anthropic.com/en/docs/claude-code/overview",
-          );
+          shell.openExternal("https://github.com/AadityaMishra1/Gilfoyle");
         },
       },
       {
         label: "Report an Issue",
         click(): void {
           shell.openExternal(
-            "https://github.com/anthropics/claude-code/issues",
+            "https://github.com/AadityaMishra1/Gilfoyle/issues",
           );
         },
       },
