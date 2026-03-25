@@ -5,7 +5,14 @@ directories:
   buildResources: build
 files:
   - out/**/*
-  - "!node_modules/**/*"
+  - node_modules/node-pty/**/*
+  - "!node_modules/node-pty/src/**"
+  - "!node_modules/node-pty/deps/**"
+asarUnpack:
+  - node_modules/node-pty/**/*.node
+  - node_modules/node-pty/**/*.dll
+  - node_modules/node-pty/**/*.dylib
+  - node_modules/node-pty/**/*.so
 mac:
   category: public.app-category.developer-tools
   target:
