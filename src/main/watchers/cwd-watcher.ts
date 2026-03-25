@@ -4,6 +4,11 @@ import chokidar, { FSWatcher } from "chokidar";
 /**
  * Watches the working directory for file-system changes.
  *
+ * Singleton watcher — only one directory at a time. When switching to a
+ * DIFFERENT directory, the old watcher is stopped and a new one created.
+ * When switching BACK to the same directory, the existing watcher is reused
+ * (avoids 6+ second chokidar re-initialization on large projects).
+ *
  * Emits 'add' | 'change' | 'unlink' events with paths relative to the watched
  * cwd so the renderer can display them without leaking absolute host paths.
  *
@@ -11,16 +16,30 @@ import chokidar, { FSWatcher } from "chokidar";
  */
 export class CwdWatcher {
   private watcher: FSWatcher | null = null;
+  private currentCwd: string | null = null;
+  /** Mutable ref so chokidar listeners always call the latest callback. */
+  private onChangeRef: ((event: string, filePath: string) => void) | null =
+    null;
 
   /**
    * Start watching `cwd` recursively.
-   * Closes any existing watcher first.
+   * If already watching the same CWD, just update the callback (instant).
+   * If switching to a different CWD, close old watcher and create new one.
    */
   start(
     cwd: string,
     onChange: (event: string, filePath: string) => void,
   ): void {
+    // Same CWD and watcher is alive — just update the callback, skip rescan.
+    if (cwd === this.currentCwd && this.watcher !== null) {
+      this.onChangeRef = onChange;
+      return;
+    }
+
+    // Different CWD — stop old watcher, create new one.
     this.stop();
+    this.currentCwd = cwd;
+    this.onChangeRef = onChange;
 
     const watcher = chokidar.watch(".", {
       cwd,
@@ -39,25 +58,27 @@ export class CwdWatcher {
       },
     });
 
+    // All listeners delegate to onChangeRef so the callback can be updated
+    // without recreating the watcher.
     watcher.on("add", (relativePath: string) => {
-      onChange("add", normalizeSep(relativePath));
+      this.onChangeRef?.("add", normalizeSep(relativePath));
     });
 
     watcher.on("addDir", (relativePath: string) => {
       if (relativePath === "." || relativePath === "") return;
-      onChange("addDir", normalizeSep(relativePath));
+      this.onChangeRef?.("addDir", normalizeSep(relativePath));
     });
 
     watcher.on("change", (relativePath: string) => {
-      onChange("change", normalizeSep(relativePath));
+      this.onChangeRef?.("change", normalizeSep(relativePath));
     });
 
     watcher.on("unlink", (relativePath: string) => {
-      onChange("unlink", normalizeSep(relativePath));
+      this.onChangeRef?.("unlink", normalizeSep(relativePath));
     });
 
     watcher.on("unlinkDir", (relativePath: string) => {
-      onChange("unlinkDir", normalizeSep(relativePath));
+      this.onChangeRef?.("unlinkDir", normalizeSep(relativePath));
     });
 
     watcher.on("error", (err: unknown) => {
@@ -74,6 +95,8 @@ export class CwdWatcher {
         console.warn("[CwdWatcher] error closing watcher:", err);
       });
       this.watcher = null;
+      this.currentCwd = null;
+      this.onChangeRef = null;
     }
   }
 
