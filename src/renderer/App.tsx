@@ -213,11 +213,16 @@ const NoProjectState: React.FC = () => {
     ProjectWithSessions[]
   >([]);
 
+  // Load once on mount only. scanSessions() calls sessionIndex.scanAll()
+  // which does heavy synchronous I/O — re-running it every time the project
+  // list changes causes beach balls when opening new projects.
   useEffect(() => {
     const load = async () => {
+      // Capture current projects at call time (not reactive — intentional).
+      const currentProjects = useProjectStore.getState().projects;
       try {
         const sessions = await claude.scanSessions();
-        const sorted = projects
+        const sorted = currentProjects
           .slice()
           .sort((a, b) => b.lastActiveAt - a.lastActiveAt)
           .slice(0, 8);
@@ -237,7 +242,8 @@ const NoProjectState: React.FC = () => {
 
         setProjectsWithSessions(result);
       } catch {
-        const sorted = projects
+        const currentProjects = useProjectStore.getState().projects;
+        const sorted = currentProjects
           .slice()
           .sort((a, b) => b.lastActiveAt - a.lastActiveAt)
           .slice(0, 8);
@@ -247,7 +253,8 @@ const NoProjectState: React.FC = () => {
       }
     };
     void load();
-  }, [claude, projects]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [claude]);
 
   const handleOpenFolder = useCallback(async () => {
     try {

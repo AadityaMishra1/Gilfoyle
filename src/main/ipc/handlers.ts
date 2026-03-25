@@ -104,11 +104,13 @@ export function registerIpcHandlers(
   // Load any previously persisted analytics state.
   costAggregator.load();
 
-  // If no persisted summaries exist yet, bootstrap the aggregator from the
-  // session scan so the analytics panel has data on first launch.
+  // Scan sessions ONCE for both analytics and activity bootstrap.
+  // scanAll reads every JSONL file (~1GB for heavy users) so we must not
+  // call it twice. Defer to setTimeout so the window can render first.
+  const bootstrapSessions = sessionIndex.scanAll(homeDir);
+
   if (costAggregator.getAllSummaries().length === 0) {
-    const existingSessions = sessionIndex.scanAll(homeDir);
-    for (const session of existingSessions) {
+    for (const session of bootstrapSessions) {
       const model = session.model ?? "";
       if (model.length === 0) continue;
       const totalTokens =
@@ -120,7 +122,9 @@ export function registerIpcHandlers(
       costAggregator.seedFromSessionMeta(session);
     }
     if (
-      existingSessions.some((s) => s.totalInputTokens + s.totalOutputTokens > 0)
+      bootstrapSessions.some(
+        (s) => s.totalInputTokens + s.totalOutputTokens > 0,
+      )
     ) {
       costAggregator.save();
     }
@@ -128,7 +132,7 @@ export function registerIpcHandlers(
 
   // ─── Bootstrap activity from recent JSONL files ───────────────────────
   {
-    const recentSessions = sessionIndex.scanAll(homeDir);
+    const recentSessions = bootstrapSessions;
     const threeDaysAgo = new Date();
     threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
     threeDaysAgo.setHours(0, 0, 0, 0);
@@ -293,8 +297,21 @@ export function registerIpcHandlers(
 
   // ─── Session scanning ──────────────────────────────────────────────────
 
+  // scanAll reads every JSONL file synchronously and blocks the main thread
+  // for 1-5+ seconds. Cache results so repeated calls (useDataLoader + App.tsx
+  // NoProjectState effect) don't block twice.
+  // Pre-seed cache with bootstrap scan so the first IPC call returns instantly.
+  let scanAllCache: {
+    data: ReturnType<typeof sessionIndex.scanAll>;
+    at: number;
+  } | null = { data: bootstrapSessions, at: Date.now() };
+
   ipcMain.handle(IPC_CHANNELS.SCAN_SESSIONS, () => {
-    return sessionIndex.scanAll(homeDir);
+    const now = Date.now();
+    if (scanAllCache && now - scanAllCache.at < 15000) return scanAllCache.data;
+    const data = sessionIndex.scanAll(homeDir);
+    scanAllCache = { data, at: now };
+    return data;
   });
 
   ipcMain.handle(IPC_CHANNELS.WATCH_SESSIONS_START, () => {
@@ -302,7 +319,9 @@ export function registerIpcHandlers(
   });
 
   // Lightweight per-project session scan — only reads JSONL files for one project.
-  // Much faster than scanAll() which reads ALL 1000+ session files.
+  // Two-pass approach: stat all files (cheap) to find the 10 most recent,
+  // then read only those 10 for model detection (expensive). This avoids
+  // reading hundreds of files in big projects.
   ipcMain.handle(
     IPC_CHANNELS.GET_PROJECT_SESSIONS,
     (_event, projectPath: string) => {
@@ -314,22 +333,39 @@ export function registerIpcHandlers(
         if (!fs.existsSync(projectDir)) return [];
 
         const files = fs.readdirSync(projectDir);
-        const sessions: Array<{
+
+        // Pass 1: stat only (cheap) — collect mtime for all JSONL files.
+        const candidates: Array<{
           sessionId: string;
+          fullPath: string;
           lastActiveAt: number;
-          model?: string;
         }> = [];
 
         for (const file of files) {
           if (!file.endsWith(".jsonl")) continue;
-          const sessionId = file.slice(0, -".jsonl".length);
-          const fullPath = path.join(projectDir, file);
-
           try {
-            const stat = fs.statSync(fullPath);
-            // Quick model detection: read last 4KB for model info
-            let model: string | undefined;
-            const fd = fs.openSync(fullPath, "r");
+            const fullPath = path.join(projectDir, file);
+            const mtime = fs.statSync(fullPath).mtimeMs;
+            candidates.push({
+              sessionId: file.slice(0, -".jsonl".length),
+              fullPath,
+              lastActiveAt: mtime,
+            });
+          } catch {
+            // Skip unreadable files
+          }
+        }
+
+        // Sort by most recent and take top 10 BEFORE doing expensive reads.
+        candidates.sort((a, b) => b.lastActiveAt - a.lastActiveAt);
+        const top = candidates.slice(0, 10);
+
+        // Pass 2: read last 4KB for model detection — only for the top 10.
+        return top.map((c) => {
+          let model: string | undefined;
+          try {
+            const stat = fs.statSync(c.fullPath);
+            const fd = fs.openSync(c.fullPath, "r");
             const tailBuf = Buffer.allocUnsafe(4096);
             const offset = Math.max(0, stat.size - 4096);
             const bytesRead = fs.readSync(fd, tailBuf, 0, 4096, offset);
@@ -337,20 +373,15 @@ export function registerIpcHandlers(
             const tail = tailBuf.subarray(0, bytesRead).toString("utf8");
             const modelMatch = tail.match(/"model"\s*:\s*"([^"]+)"/);
             if (modelMatch) model = modelMatch[1];
-
-            sessions.push({
-              sessionId,
-              lastActiveAt: stat.mtimeMs,
-              model,
-            });
           } catch {
-            // Skip unreadable files
+            // Model detection is optional
           }
-        }
-
-        // Sort by most recent first
-        sessions.sort((a, b) => b.lastActiveAt - a.lastActiveAt);
-        return sessions.slice(0, 10); // Only return top 10
+          return {
+            sessionId: c.sessionId,
+            lastActiveAt: c.lastActiveAt,
+            model,
+          };
+        });
       } catch {
         return [];
       }
@@ -960,22 +991,24 @@ export function registerIpcHandlers(
     }, 0);
   }
 
-  // Check every 30s — only flush if no active PTY sessions
+  // Check every 60s — only flush if no active PTY sessions.
+  // scanAll() inside flushDeferredWork blocks the main thread for 1-2s+,
+  // so we keep this infrequent to avoid coinciding with user activity.
   setInterval(() => {
     if (deferredDirty && ptyManager.listActive().length === 0) {
       flushDeferredWork();
     }
-  }, 30000);
+  }, 60000);
 
-  // Also flush when a PTY session exits (transition from active → idle)
+  // Also flush when a PTY session exits (transition from active → idle).
+  // 10s delay gives the user time to switch projects or open new sessions
+  // before the expensive scanAll() blocks the main thread.
   ptyManager.onSessionExit(() => {
-    // Delay to let final JSONL writes settle and avoid blocking during
-    // project switches that may coincide with session exits.
     setTimeout(() => {
       if (ptyManager.listActive().length === 0) {
         flushDeferredWork();
       }
-    }, 2000);
+    }, 10000);
   });
 
   const agentEventBuffer: unknown[] = [];
