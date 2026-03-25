@@ -105,124 +105,144 @@ export function registerIpcHandlers(
   costAggregator.load();
 
   // Scan sessions ONCE for both analytics and activity bootstrap.
-  // scanAll reads every JSONL file (~1GB for heavy users) so we must not
-  // call it twice. Defer to setTimeout so the window can render first.
-  const bootstrapSessions = sessionIndex.scanAll(homeDir);
+  // DEFERRED: scanAll reads every JSONL file (~1GB for heavy users) and
+  // blocks the main thread for 3-5+ seconds. We defer it so the window
+  // can render and IPC handlers can process (session resume, git, etc.)
+  // without waiting for the scan to finish.
+  let bootstrapSessions: ReturnType<typeof sessionIndex.scanAll> = [];
+  let bootstrapDone = false;
 
-  if (costAggregator.getAllSummaries().length === 0) {
-    for (const session of bootstrapSessions) {
-      const model = session.model ?? "";
-      if (model.length === 0) continue;
-      const totalTokens =
-        session.totalInputTokens +
-        session.totalOutputTokens +
-        session.totalCacheReadTokens +
-        session.totalCacheWriteTokens;
-      if (totalTokens === 0) continue;
-      costAggregator.seedFromSessionMeta(session);
-    }
-    if (
-      bootstrapSessions.some(
-        (s) => s.totalInputTokens + s.totalOutputTokens > 0,
-      )
-    ) {
-      costAggregator.save();
-    }
-  }
+  setTimeout(() => {
+    bootstrapSessions = sessionIndex.scanAll(homeDir);
+    bootstrapDone = true;
 
-  // ─── Bootstrap activity from recent JSONL files ───────────────────────
-  {
-    const recentSessions = bootstrapSessions;
-    const threeDaysAgo = new Date();
-    threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
-    threeDaysAgo.setHours(0, 0, 0, 0);
-    const cutoffMs = threeDaysAgo.getTime();
+    // Seed the scanAll cache so subsequent IPC calls are instant.
+    scanAllCache = { data: bootstrapSessions, at: Date.now() };
 
-    // Process sessions from the last 3 days for activity feed
-    for (const session of recentSessions.slice(0, 50)) {
-      if (session.lastActiveAt < cutoffMs) continue;
-
-      const projectsDir = path.join(homeDir, ".claude", "projects");
-      // Find the JSONL file for this session
-      const possibleDirs = (() => {
-        try {
-          return fs
-            .readdirSync(projectsDir, { withFileTypes: true })
-            .filter((d) => d.isDirectory())
-            .map((d) => d.name);
-        } catch {
-          return [];
-        }
-      })();
-
-      for (const dir of possibleDirs) {
-        const jsonlPath = path.join(
-          projectsDir,
-          dir,
-          `${session.sessionId}.jsonl`,
-        );
-        if (!fs.existsSync(jsonlPath)) continue;
-
-        // Parse last ~50 lines for activities
-        let fd: number | undefined;
-        try {
-          const stat = fs.statSync(jsonlPath);
-          const tailBytes = Math.min(stat.size, 65536);
-          fd = fs.openSync(jsonlPath, "r");
-          const buf = Buffer.allocUnsafe(tailBytes);
-          fs.readSync(
-            fd,
-            buf,
-            0,
-            tailBytes,
-            Math.max(0, stat.size - tailBytes),
-          );
-          const text = buf.toString("utf8");
-          const lines = text.split("\n").filter((l) => l.trim().length > 0);
-
-          for (const line of lines.slice(-50)) {
-            try {
-              const raw = JSON.parse(line);
-              if (raw === null || typeof raw !== "object") continue;
-              const event = classifyEvent(
-                raw as Record<string, unknown>,
-                session.sessionId,
-              );
-              if (event.type === "tool_use") {
-                // Use the project directory the JSONL was found in, not session.cwd
-                const projectPath = decodeProjectPath(dir);
-                const activity = parseToolUseToActivity(
-                  event,
-                  session.sessionId,
-                  projectPath,
-                );
-                if (activity !== null) activityBuffer.push(activity);
-              }
-            } catch {
-              continue;
-            }
-          }
-        } catch {
-          /* skip unreadable */
-        } finally {
-          if (fd !== undefined) {
-            try {
-              fs.closeSync(fd);
-            } catch {
-              /* */
-            }
-          }
-        }
-        break; // Found the file, move to next session
+    if (costAggregator.getAllSummaries().length === 0) {
+      for (const session of bootstrapSessions) {
+        const model = session.model ?? "";
+        if (model.length === 0) continue;
+        const totalTokens =
+          session.totalInputTokens +
+          session.totalOutputTokens +
+          session.totalCacheReadTokens +
+          session.totalCacheWriteTokens;
+        if (totalTokens === 0) continue;
+        costAggregator.seedFromSessionMeta(session);
+      }
+      if (
+        bootstrapSessions.some(
+          (s) => s.totalInputTokens + s.totalOutputTokens > 0,
+        )
+      ) {
+        costAggregator.save();
       }
     }
 
-    // Sort newest-first and trim
-    activityBuffer.sort((a, b) => b.timestamp - a.timestamp);
-    if (activityBuffer.length > MAX_ACTIVITIES) {
-      activityBuffer.splice(MAX_ACTIVITIES);
+    // ── Bootstrap activity from recent JSONL files ───────────────────────
+    {
+      const recentSessions = bootstrapSessions;
+      const threeDaysAgo = new Date();
+      threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+      threeDaysAgo.setHours(0, 0, 0, 0);
+      const cutoffMs = threeDaysAgo.getTime();
+
+      for (const session of recentSessions.slice(0, 50)) {
+        if (session.lastActiveAt < cutoffMs) continue;
+
+        const projectsDir = path.join(homeDir, ".claude", "projects");
+        const possibleDirs = (() => {
+          try {
+            return fs
+              .readdirSync(projectsDir, { withFileTypes: true })
+              .filter((d: { isDirectory: () => boolean }) => d.isDirectory())
+              .map((d: { name: string }) => d.name);
+          } catch {
+            return [];
+          }
+        })();
+
+        for (const dir of possibleDirs) {
+          const jsonlPath = path.join(
+            projectsDir,
+            dir,
+            `${session.sessionId}.jsonl`,
+          );
+          if (!fs.existsSync(jsonlPath)) continue;
+
+          let fd: number | undefined;
+          try {
+            const stat = fs.statSync(jsonlPath);
+            const tailBytes = Math.min(stat.size, 65536);
+            fd = fs.openSync(jsonlPath, "r");
+            const buf = Buffer.allocUnsafe(tailBytes);
+            fs.readSync(
+              fd,
+              buf,
+              0,
+              tailBytes,
+              Math.max(0, stat.size - tailBytes),
+            );
+            const text = buf.toString("utf8");
+            const lines = text
+              .split("\n")
+              .filter((l: string) => l.trim().length > 0);
+
+            for (const line of lines.slice(-50)) {
+              try {
+                const raw = JSON.parse(line);
+                if (raw === null || typeof raw !== "object") continue;
+                const event = classifyEvent(
+                  raw as Record<string, unknown>,
+                  session.sessionId,
+                );
+                if (event.type === "tool_use") {
+                  const projectPath = decodeProjectPath(dir);
+                  const activity = parseToolUseToActivity(
+                    event,
+                    session.sessionId,
+                    projectPath,
+                  );
+                  if (activity !== null) activityBuffer.push(activity);
+                }
+              } catch {
+                continue;
+              }
+            }
+          } catch {
+            /* skip unreadable */
+          } finally {
+            if (fd !== undefined) {
+              try {
+                fs.closeSync(fd);
+              } catch {
+                /* */
+              }
+            }
+          }
+          break;
+        }
+      }
+
+      activityBuffer.sort((a, b) => b.timestamp - a.timestamp);
+      if (activityBuffer.length > MAX_ACTIVITIES) {
+        activityBuffer.splice(MAX_ACTIVITIES);
+      }
     }
-  }
+
+    // Push bootstrap data to renderer now that it's ready.
+    if (!mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(
+        IPC_CHANNELS.SESSION_UPDATED,
+        bootstrapSessions,
+      );
+      // Also push activities that were bootstrapped.
+      for (const act of activityBuffer) {
+        mainWindow.webContents.send(IPC_CHANNELS.ACTIVITY_NEW, act);
+      }
+    }
+  }, 100); // 100ms — enough for window to render and IPC to register
 
   // ─── Session management ────────────────────────────────────────────────
 
@@ -300,11 +320,12 @@ export function registerIpcHandlers(
   // scanAll reads every JSONL file synchronously and blocks the main thread
   // for 1-5+ seconds. Cache results so repeated calls (useDataLoader + App.tsx
   // NoProjectState effect) don't block twice.
-  // Pre-seed cache with bootstrap scan so the first IPC call returns instantly.
+  // Cache populated by deferred bootstrap scan (see setTimeout above).
+  // Starts null — first IPC call before bootstrap completes returns empty.
   let scanAllCache: {
     data: ReturnType<typeof sessionIndex.scanAll>;
     at: number;
-  } | null = { data: bootstrapSessions, at: Date.now() };
+  } | null = null;
 
   ipcMain.handle(IPC_CHANNELS.SCAN_SESSIONS, () => {
     const now = Date.now();

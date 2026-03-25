@@ -113,7 +113,7 @@ const ProjectView: React.FC<ProjectViewProps> = ({
 
         // Step 1: Check for resumable sessions BEFORE spawning any PTY.
         // This is a fast filesystem read (~1-5ms), not a slow network call.
-        let shouldResume = false;
+        let resumeSessionId: string | undefined;
         try {
           const sessions = await claude.getProjectSessions(projectPath);
 
@@ -122,9 +122,12 @@ const ProjectView: React.FC<ProjectViewProps> = ({
             const recent = sessions[0]!;
 
             if (recent.lastActiveAt > threeDaysAgo) {
-              shouldResume = window.confirm(
+              const shouldResume = window.confirm(
                 `Resume your last Claude session?\n\nLast active: ${new Date(recent.lastActiveAt).toLocaleString()}\nModel: ${recent.model ?? "unknown"}`,
               );
+              if (shouldResume) {
+                resumeSessionId = recent.sessionId;
+              }
             }
           }
         } catch {
@@ -134,16 +137,20 @@ const ProjectView: React.FC<ProjectViewProps> = ({
         if (cancelled) return;
 
         // Step 2: Spawn the PTY — either resumed or fresh.
+        // Uses --resume <id> (direct lookup) instead of --continue (scans
+        // all sessions — slow and unreliable for projects with many sessions).
         const tabNumber =
           (useTabStore.getState().tabsByProject[projectPath]?.length ?? 0) + 1;
         const { cols, rows } = estimateTermSize();
 
         const meta = await claude.createSession({
           cwd: projectPath,
-          name: shouldResume ? `Resumed ${tabNumber}` : `Session ${tabNumber}`,
+          name: resumeSessionId
+            ? `Resumed ${tabNumber}`
+            : `Session ${tabNumber}`,
           cols,
           rows,
-          ...(shouldResume ? { continueSession: true } : {}),
+          ...(resumeSessionId ? { resumeSessionId } : {}),
         });
 
         if (cancelled) return;
