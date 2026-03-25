@@ -457,14 +457,19 @@ export function registerIpcHandlers(
       const execAsync = promisify(exec);
 
       try {
-        // Validate install command - only allow npm/npx install commands
+        // Validate install command — allow npm, npx, claude plugin, and claude mcp commands
         const SAFE_INSTALL_CMD =
           /^(npm\s+install|npx)\s+(@[\w-]+\/)?[\w.-]+(@[\w.-]+)?(\s+--[\w-]+(=[\w.-]+)?)*$/;
-        if (!SAFE_INSTALL_CMD.test(installCommand.trim())) {
+        const SAFE_CLAUDE_CMD =
+          /^claude\s+(plugin\s+install\s+[\w@.-]+|mcp\s+add\s+[\w.-]+(\s+--\s+.+)?)$/;
+        if (
+          !SAFE_INSTALL_CMD.test(installCommand.trim()) &&
+          !SAFE_CLAUDE_CMD.test(installCommand.trim())
+        ) {
           return {
             ok: false,
             error:
-              "Invalid install command format. Only npm install or npx commands are allowed.",
+              "Invalid install command. Allowed: npm install, npx, claude plugin install, claude mcp add.",
           };
         }
 
