@@ -262,18 +262,26 @@ const AgentSection: React.FC<AgentSectionProps> = ({ projectPath }) => {
   }, []);
 
   // Subscribe to stream events — handles both single events and batched arrays.
+  // Filter uses encoded path comparison because decodeProjectPath is lossy
+  // for paths containing hyphens (e.g. "Gilfoyle-Landing-Page").
+  const encodedProject = projectPath ? projectPath.replace(/\//g, "-") : null;
+
   const handleEvent = useCallback(
     (raw: unknown) => {
       const items = Array.isArray(raw) ? raw : [raw];
       for (const item of items) {
-        const evt = item as { projectPath?: string };
-        if (projectPath && evt.projectPath && evt.projectPath !== projectPath)
-          continue;
+        if (encodedProject) {
+          const evt = item as { projectPath?: string };
+          if (evt.projectPath) {
+            const encodedEvt = evt.projectPath.replace(/\//g, "-");
+            if (encodedEvt !== encodedProject) continue;
+          }
+        }
         processOne(item);
       }
       scheduleFlush();
     },
-    [processOne, scheduleFlush, projectPath],
+    [processOne, scheduleFlush, encodedProject],
   );
 
   // Subscribe to live stream events (filtered by projectPath in handleEvent).

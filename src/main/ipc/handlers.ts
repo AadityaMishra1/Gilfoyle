@@ -1038,7 +1038,9 @@ export function registerIpcHandlers(
   ipcMain.handle(
     IPC_CHANNELS.GET_STREAM_EVENTS,
     (_event, projectPath: string) => {
-      return [...(agentEventBuffers.get(projectPath) ?? [])];
+      // Convert to encoded form for lookup (buffer is keyed by encoded dir name).
+      const encoded = projectPath.replace(/\//g, "-");
+      return [...(agentEventBuffers.get(encoded) ?? [])];
     },
   );
 
@@ -1055,6 +1057,9 @@ export function registerIpcHandlers(
 
     const projectsDir = path.join(homeDir, ".claude", "projects");
     const derivedProjectPath = projectPathFromJsonl(filePath, projectsDir);
+    // Encoded dir name for buffer keying (decoded path is lossy for hyphenated names).
+    const encodedProjectDir =
+      path.relative(projectsDir, filePath).split(path.sep)[0] ?? "";
 
     for (const { raw } of newLines) {
       // Skip progress events early — they're ~80% of lines and contain
@@ -1104,11 +1109,11 @@ export function registerIpcHandlers(
     // Send batched agent events as single IPC message
     if (agentStreamBatch.length > 0 && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send(IPC_CHANNELS.STREAM_EVENT, agentStreamBatch);
-      const bucket = agentEventBuffers.get(derivedProjectPath) ?? [];
+      const bucket = agentEventBuffers.get(encodedProjectDir) ?? [];
       for (const evt of agentStreamBatch) bucket.push(evt);
       if (bucket.length > MAX_AGENT_EVENTS)
         bucket.splice(0, bucket.length - MAX_AGENT_EVENTS);
-      agentEventBuffers.set(derivedProjectPath, bucket);
+      agentEventBuffers.set(encodedProjectDir, bucket);
     }
 
     if (analyticsChanged) {

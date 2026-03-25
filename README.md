@@ -1,32 +1,66 @@
 # Gilfoyle
 
-A desktop GUI for Claude Code.
+A desktop environment for Claude Code.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![GitHub Release](https://img.shields.io/github/v/release/AadityaMishra1/Gilfoyle)](https://github.com/AadityaMishra1/Gilfoyle/releases)
 [![Platform: macOS | Windows | Linux](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey)](https://github.com/AadityaMishra1/Gilfoyle/releases)
 
-![Gilfoyle — Power Layout](docs/screenshots/main.png)
-*Power layout: sidebar with projects and usage, multi-tab terminal, activity feed with git changes*
+![Gilfoyle](docs/screenshots/mainSS.png)
 
 ## Why Gilfoyle?
 
 - **Full PTY terminal** — Not an API wrapper. Spawns the real `claude` process. Every Claude Code feature works exactly as it does in your terminal.
-- **Multi-tab sessions** — Multiple terminals per project with session resume via `--continue` / `--resume` flags.
+- **Multi-tab sessions** — Multiple terminals per project with session resume via `--resume`.
 - **Visual dashboard** — Activity feed tracking file edits, git operations, tests, shell commands, agent spawns, and errors. Real-time MCP monitoring and plugin discovery.
 - **All projects in one place** — Automatic discovery from `~/.claude/projects/` with file browsing, code preview, and Claude-modified file highlighting.
 
+## Screenshots
+
+<table>
+<tr>
+<td width="50%">
+
+![Active Agents](docs/screenshots/active-agents.png)
+*Active agents running in parallel with MCP servers and hooks*
+
+</td>
+<td width="50%">
+
+![Git Panel](docs/screenshots/git-panel.png)
+*Git changes with inline diffs and side-by-side code editor*
+
+</td>
+</tr>
+<tr>
+<td width="50%">
+
+![Power Layout](docs/screenshots/power-layout.png)
+*Power layout with git panel, file tree, and usage tracking*
+
+</td>
+<td width="50%">
+
+![Main View](docs/screenshots/mainSS.png)
+*Activity feed, file explorer, and multi-project sidebar*
+
+</td>
+</tr>
+</table>
+
 ## Features
 
-- Multi-tab terminal sessions
+- Multi-tab terminal sessions with session resume
+- Project-scoped active agent tracking
 - Project discovery from `~/.claude/projects/`
 - Activity feed (file edits, git ops, tests, shell commands, agent spawns, errors)
+- Git panel with branch info, changes, and inline diffs
 - File browser with code preview and syntax highlighting
 - MCP server monitoring with tool counts
 - Plugin marketplace (curated registry + GitHub discovery)
-- Usage tracking (subscription usage percentages or API token costs in USD)
+- Usage tracking (real subscription percentages via OAuth)
 - Command palette (Cmd/Ctrl+K)
-- Two layouts: Simple (terminal) or Power (multi-panel dashboard)
+- Two layouts: Simple (terminal-focused) or Power (multi-panel dashboard)
 - Dark/light theme with warm dark default
 - Cross-platform: macOS, Windows, Linux
 - Auto-updates via GitHub Releases
