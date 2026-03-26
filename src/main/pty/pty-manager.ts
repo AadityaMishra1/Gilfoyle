@@ -5,6 +5,11 @@ import { randomUUID } from "crypto";
 import { execFileSync } from "child_process";
 import { BrowserWindow } from "electron";
 import { IPC_CHANNELS } from "../../shared/ipc-channels";
+import {
+  getHomeDir,
+  getDefaultShell,
+  getEnhancedPath,
+} from "../utils/platform";
 import type {
   SessionCreateOptions,
   SessionMetadata,
@@ -183,7 +188,7 @@ export class PtyManager {
       const meta = this.create({
         sessionId: "__usage_bg__",
         name: "Usage Check",
-        cwd: process.env.HOME ?? "/tmp",
+        cwd: getHomeDir(),
         cols: 80,
         rows: 24,
       });
@@ -211,11 +216,8 @@ export class PtyManager {
 
   create(opts: SessionCreateOptions = {}): SessionMetadata {
     const sessionId = opts.sessionId ?? randomUUID();
-    const shell =
-      process.platform === "win32"
-        ? (process.env.COMSPEC ?? "powershell.exe")
-        : (process.env.SHELL ?? "/bin/sh");
-    const cwd = opts.cwd ?? process.env.HOME ?? "/";
+    const shell = getDefaultShell();
+    const cwd = opts.cwd ?? getHomeDir();
     const cols = opts.cols ?? 120;
     const rows = opts.rows ?? 30;
     const name = opts.name ?? `Session ${this.sessions.size + 1}`;
@@ -236,29 +238,7 @@ export class PtyManager {
 
     // Build a PATH that includes common install locations for tools like
     // starship, eza, and other modern CLI utilities.
-    const isWin = process.platform === "win32";
-    const pathSep = isWin ? ";" : ":";
-    const home = process.env.HOME ?? process.env.USERPROFILE ?? "";
-    const extraPaths = isWin
-      ? [
-          `${home}\\AppData\\Roaming\\npm`,
-          `${home}\\.cargo\\bin`,
-          `${home}\\.local\\bin`,
-        ]
-      : [
-          // Homebrew on Apple Silicon and Intel Macs
-          "/opt/homebrew/bin",
-          "/usr/local/bin",
-          // Common Linux paths
-          "/usr/bin",
-          "/snap/bin",
-          "/home/linuxbrew/.linuxbrew/bin",
-          // User-local paths
-          `${home}/.cargo/bin`,
-          `${home}/.local/bin`,
-          `${home}/.nvm/versions/node/current/bin`,
-        ];
-    const enhancedPath = [...extraPaths, process.env.PATH ?? ""].join(pathSep);
+    const enhancedPath = getEnhancedPath();
 
     const ptyProcess = pty.spawn(command, args, {
       name: "xterm-256color",

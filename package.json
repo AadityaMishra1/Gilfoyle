@@ -1,6 +1,6 @@
 {
   "name": "gilfoyle",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Gilfoyle — a desktop GUI for Claude Code CLI",
   "main": "out/main/index.js",
   "author": {

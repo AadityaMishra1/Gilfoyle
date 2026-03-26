@@ -26,6 +26,11 @@ import { InstalledPluginService } from "../services/installed-plugins";
 import { UsageTracker } from "../services/usage-tracker";
 import { OAuthUsageService } from "../services/oauth-usage";
 import type { ActivityEvent } from "../../shared/types/activity";
+import {
+  getHomeDir,
+  getDefaultShell,
+  getEnhancedPath,
+} from "../utils/platform";
 
 /**
  * Decode an encoded CWD directory name back to an absolute path.
@@ -313,6 +318,7 @@ export function registerIpcHandlers(
       const version = execFileSync("claude", ["--version"], {
         encoding: "utf8",
         timeout: 5000,
+        env: { ...process.env, PATH: getEnhancedPath() },
       }).trim();
       return version || null;
     } catch {
@@ -594,28 +600,11 @@ export function registerIpcHandlers(
           };
         }
 
-        // Ensure common tool paths are available (Electron may strip PATH)
-        const isWin = process.platform === "win32";
-        const pathSep = isWin ? ";" : ":";
-        const extraPaths = isWin
-          ? [
-              `${homeDir}\\AppData\\Roaming\\npm`,
-              `${homeDir}\\.npm-global\\bin`,
-            ]
-          : [
-              "/opt/homebrew/bin",
-              "/usr/local/bin",
-              `${homeDir}/.nvm/versions/node/$(node -v)/bin`,
-              `${homeDir}/.npm-global/bin`,
-            ];
-        const envPath = [...extraPaths, process.env.PATH ?? ""].join(pathSep);
+        const envPath = getEnhancedPath();
 
         // Use exec (not execFile) so the command is interpreted by the shell
         // including pipes, &&, etc. Login shell (-l) loads user's PATH.
-        const shell =
-          process.platform === "win32"
-            ? (process.env.COMSPEC ?? "powershell.exe")
-            : (process.env.SHELL ?? "/bin/zsh");
+        const shell = getDefaultShell();
         const { stdout, stderr } = await execAsync(installCommand, {
           timeout: 120_000,
           env: { ...process.env, PATH: envPath },
@@ -647,7 +636,11 @@ export function registerIpcHandlers(
   ipcMain.handle(IPC_CHANNELS.GIT_STATUS, async (_event, cwd: string) => {
     if (!cwd || !fs.existsSync(cwd)) return null;
 
-    const opts = { cwd, timeout: 5000 };
+    const opts = {
+      cwd,
+      timeout: 5000,
+      env: { ...process.env, PATH: getEnhancedPath() },
+    };
 
     try {
       // Check if it's a git repo (async — doesn't block main process)
@@ -763,7 +756,11 @@ export function registerIpcHandlers(
     IPC_CHANNELS.GIT_DIFF,
     async (_event, cwd: string, file: string, commitHash?: string) => {
       if (!cwd || !fs.existsSync(cwd)) return null;
-      const opts = { cwd, timeout: 5000 };
+      const opts = {
+        cwd,
+        timeout: 5000,
+        env: { ...process.env, PATH: getEnhancedPath() },
+      };
 
       try {
         let before = "";

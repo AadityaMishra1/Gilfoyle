@@ -71,8 +71,8 @@ Download the latest release for your platform from [GitHub Releases](https://git
 
 | Platform | Format | Download |
 |----------|--------|----------|
-| macOS | `.dmg` (universal) | [Releases](https://github.com/AadityaMishra1/Gilfoyle/releases) |
 | macOS (Homebrew) | `brew install --cask gilfoyle` | [Tap](https://github.com/AadityaMishra1/homebrew-gilfoyle) |
+| macOS | `.dmg` (universal) | [Releases](https://github.com/AadityaMishra1/Gilfoyle/releases) |
 | Windows | `.exe` installer | [Releases](https://github.com/AadityaMishra1/Gilfoyle/releases) |
 | Linux | `.AppImage` or `.deb` | [Releases](https://github.com/AadityaMishra1/Gilfoyle/releases) |
 
@@ -82,8 +82,6 @@ Download the latest release for your platform from [GitHub Releases](https://git
 brew tap AadityaMishra1/gilfoyle
 brew install --cask gilfoyle
 ```
-
-This installs Gilfoyle to `/Applications` — launch it from Spotlight, Launchpad, or the dock like any other app. Update with `brew upgrade gilfoyle`.
 
 ### Prerequisites
 
