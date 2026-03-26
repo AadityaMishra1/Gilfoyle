@@ -163,6 +163,52 @@ export class PtyManager {
     return null;
   }
 
+  /**
+   * Spawn a hidden background Claude session, send /usage, capture output,
+   * then kill the session. Used as fallback when the OAuth API is rate-limited.
+   * The output is captured by detectUsageInOutput() and pushed via USAGE_UPDATED.
+   */
+  requestUsageBackground(): void {
+    // Don't spawn if we already have recent usage data (< 2 minutes old)
+    if (
+      this.lastUsageData &&
+      Date.now() - this.lastUsageData.capturedAt < 120_000
+    )
+      return;
+
+    // Don't spawn multiple background sessions
+    if (this.sessions.has("__usage_bg__")) return;
+
+    try {
+      const meta = this.create({
+        sessionId: "__usage_bg__",
+        name: "Usage Check",
+        cwd: process.env.HOME ?? "/tmp",
+        cols: 80,
+        rows: 24,
+      });
+
+      // Wait for Claude to initialize, then send /usage
+      setTimeout(() => {
+        const session = this.sessions.get(meta.sessionId);
+        if (!session) return;
+        try {
+          session.process.write("/usage\n");
+        } catch {
+          // Session may have exited already
+        }
+
+        // Kill after enough time to capture the output (detectUsageInOutput
+        // debounces at 1500ms, so 5s total is plenty)
+        setTimeout(() => {
+          this.kill(meta.sessionId);
+        }, 5000);
+      }, 3000);
+    } catch {
+      // Failed to spawn — not critical, usage will update on next poll
+    }
+  }
+
   create(opts: SessionCreateOptions = {}): SessionMetadata {
     const sessionId = opts.sessionId ?? randomUUID();
     const shell =
@@ -246,33 +292,40 @@ export class PtyManager {
       isDirect: !!(opts.resumeSessionId || opts.continueSession),
     };
 
+    const isBackground = sessionId === "__usage_bg__";
+
     ptyProcess.onData((data: string) => {
-      if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+      // Don't send background session output to renderer.
+      if (!isBackground && this.mainWindow && !this.mainWindow.isDestroyed()) {
         const payload: PtyDataPayload = { sessionId, data };
         this.mainWindow.webContents.send(IPC_CHANNELS.PTY_DATA, payload);
       }
 
-      // Store in scrollback buffer for terminal recovery after project switch.
-      let buf = this.scrollbackBuffers.get(sessionId);
-      if (!buf) {
-        buf = [];
-        this.scrollbackBuffers.set(sessionId, buf);
-      }
-      buf.push(data);
-      // Cap to prevent unbounded memory growth.
-      if (buf.length > PtyManager.MAX_SCROLLBACK_CHUNKS) {
-        buf.splice(0, buf.length - PtyManager.MAX_SCROLLBACK_CHUNKS);
+      // Skip scrollback for background sessions.
+      if (!isBackground) {
+        let buf = this.scrollbackBuffers.get(sessionId);
+        if (!buf) {
+          buf = [];
+          this.scrollbackBuffers.set(sessionId, buf);
+        }
+        buf.push(data);
+        if (buf.length > PtyManager.MAX_SCROLLBACK_CHUNKS) {
+          buf.splice(0, buf.length - PtyManager.MAX_SCROLLBACK_CHUNKS);
+        }
       }
 
-      // ── Usage detection ──────────────────────────────────────────────
+      // ── Usage detection (runs for ALL sessions including background) ──
       this.detectUsageInOutput(sessionId, data);
     });
 
     ptyProcess.onExit(
       ({ exitCode, signal }: { exitCode: number; signal?: number }) => {
-        const payload: PtyExitPayload = { sessionId, exitCode, signal };
-        if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-          this.mainWindow.webContents.send(IPC_CHANNELS.PTY_EXIT, payload);
+        // Don't notify renderer or external listeners for background sessions.
+        if (!isBackground) {
+          const payload: PtyExitPayload = { sessionId, exitCode, signal };
+          if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+            this.mainWindow.webContents.send(IPC_CHANNELS.PTY_EXIT, payload);
+          }
         }
         this.sessions.delete(sessionId);
         this.outputBuffers.delete(sessionId);
@@ -282,7 +335,8 @@ export class PtyManager {
           clearTimeout(timer);
           this.usageDetectTimers.delete(sessionId);
         }
-        // Notify external listeners
+        // Notify external listeners (skip for background — avoids flushDeferredWork)
+        if (isBackground) return;
         for (const cb of this.exitListeners) {
           try {
             cb(sessionId);

@@ -92,10 +92,10 @@ export function registerIpcHandlers(
       });
     }
   });
-  // When OAuth API is rate-limited, send /usage to an active PTY session
-  // as a fallback. The PTY output parser captures the usage data automatically.
+  // When OAuth API is rate-limited, spawn a hidden background Claude session
+  // to capture /usage output. Doesn't interfere with the user's terminals.
   oauthUsage.setPtyFallback(() => {
-    ptyManager.requestUsage();
+    ptyManager.requestUsageBackground();
   });
   oauthUsage.startPolling();
 
