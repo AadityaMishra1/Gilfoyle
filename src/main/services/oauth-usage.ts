@@ -21,7 +21,7 @@ export interface OAuthUsageData {
 
 const USAGE_ENDPOINT = "https://api.anthropic.com/api/oauth/usage";
 const CACHE_TTL_MS = 300_000; // 5-minute in-memory cache (usage changes slowly)
-const POLL_INTERVAL_MS = 300_000; // Poll every 5 minutes (avoids API rate-limiting)
+const POLL_INTERVAL_MS = 600_000; // Poll every 10 minutes (avoids API rate-limiting)
 const KEYCHAIN_SERVICE = "Claude Code-credentials";
 
 /**

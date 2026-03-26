@@ -201,13 +201,16 @@ const api = {
     ipcRenderer.invoke(IPC_CHANNELS.REQUEST_USAGE),
 
   // OAuth-based usage (real subscription percentages)
-  getOAuthUsage: (): Promise<{
+  getOAuthUsage: (
+    forceRefresh?: boolean,
+  ): Promise<{
     fiveHour: number;
     sevenDay: number;
     fiveHourResetsAt: string | null;
     sevenDayResetsAt: string | null;
     capturedAt: number;
-  } | null> => ipcRenderer.invoke(IPC_CHANNELS.GET_OAUTH_USAGE),
+  } | null> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GET_OAUTH_USAGE, forceRefresh ?? false),
 
   // Write file content to disk
   writeFile: (filePath: string, content: string): Promise<boolean> =>

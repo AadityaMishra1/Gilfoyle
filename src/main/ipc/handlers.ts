@@ -495,9 +495,13 @@ export function registerIpcHandlers(
 
   // ─── OAuth usage ──────────────────────────────────────────────────────
 
-  ipcMain.handle(IPC_CHANNELS.GET_OAUTH_USAGE, async () => {
-    return oauthUsage.getUsage();
-  });
+  ipcMain.handle(
+    IPC_CHANNELS.GET_OAUTH_USAGE,
+    async (_event, forceRefresh?: boolean) => {
+      if (forceRefresh) return oauthUsage.fetchUsage();
+      return oauthUsage.getUsage();
+    },
+  );
 
   // ─── Plugin discovery ──────────────────────────────────────────────
 

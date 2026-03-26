@@ -157,7 +157,7 @@ export function UsageDetails(): React.ReactElement {
   const handleRefresh = useCallback(async () => {
     setStatus("requesting");
     try {
-      const oauth = await claude.getOAuthUsage();
+      const oauth = await claude.getOAuthUsage(true);
       if (oauth) {
         setBars([
           {
