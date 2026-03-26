@@ -172,3 +172,5 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 ## License
 
 MIT
+
+if anyone at anthropic or any tech company sees this and needs interns let me know :)
