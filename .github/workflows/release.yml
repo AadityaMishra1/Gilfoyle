@@ -73,3 +73,58 @@ jobs:
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
         run: npm run package:${{ matrix.platform }}
+
+  update-homebrew:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Download DMG and compute SHA256
+        id: sha
+        run: |
+          curl -sL "https://github.com/AadityaMishra1/Gilfoyle/releases/download/v${{ steps.version.outputs.version }}/Gilfoyle-${{ steps.version.outputs.version }}-universal.dmg" -o gilfoyle.dmg
+          SHA=$(sha256sum gilfoyle.dmg | awk '{print $1}')
+          echo "sha256=$SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Update Homebrew cask
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          SHA="${{ steps.sha.outputs.sha256 }}"
+
+          CASK_CONTENT=$(cat <<RUBY
+          cask "gilfoyle" do
+            version "${VERSION}"
+            sha256 "${SHA}"
+
+            url "https://github.com/AadityaMishra1/Gilfoyle/releases/download/v#{version}/Gilfoyle-#{version}-universal.dmg"
+            name "Gilfoyle"
+            desc "Desktop environment for Claude Code"
+            homepage "https://github.com/AadityaMishra1/Gilfoyle"
+
+            depends_on macos: ">= :catalina"
+
+            app "Gilfoyle.app"
+
+            zap trash: [
+              "~/Library/Application Support/gilfoyle",
+              "~/Library/Preferences/com.gilfoyle.app.plist",
+              "~/Library/Caches/com.gilfoyle.app",
+              "~/.gilfoyle",
+            ]
+          end
+          RUBY
+          )
+
+          ENCODED=$(echo "$CASK_CONTENT" | base64 -w 0)
+          FILE_SHA=$(gh api repos/AadityaMishra1/homebrew-gilfoyle/contents/Casks/gilfoyle.rb --jq '.sha')
+
+          gh api repos/AadityaMishra1/homebrew-gilfoyle/contents/Casks/gilfoyle.rb \
+            -X PUT \
+            -f message="Update gilfoyle to v${VERSION}" \
+            -f content="$ENCODED" \
+            -f sha="$FILE_SHA"

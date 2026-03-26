@@ -56,3 +56,5 @@ yarn-error.log*
 
 # Package manager locks (keep package-lock.json)
 yarn.lock
+*.p12
+CertificateSigningRequest.certSigningRequest
